@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from lib.anthropic_client import generate_text
 from lib.export_docx import export_blog_docx
+from lib.export_pdf import export_blog_pdf
 from lib.file_processing import extract_text_from_upload
 from lib.prompts import (
     TONE_OPTIONS,
@@ -43,6 +44,8 @@ def init_state() -> None:
         "outline_title": "",
         "outline": [],
         "sections_content": {},
+        "logo_bytes": None,
+        "logo_name": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -77,7 +80,32 @@ def parse_json_response(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+def clean_text(text: str) -> str:
+    text = text.replace("—", ", ")
+    text = text.replace("–", ", ")
+    text = text.replace("  ", " ")
+    return text.strip()
+
+
 init_state()
+
+# Top logo area
+top_left, top_right = st.columns([1, 5])
+
+with top_left:
+    logo_upload = st.file_uploader(
+        "Upload logo",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="logo_uploader",
+        help="Optional logo shown at the top of the app",
+    )
+    if logo_upload is not None:
+        st.session_state.logo_bytes = logo_upload.getvalue()
+        st.session_state.logo_name = logo_upload.name
+
+with top_right:
+    if st.session_state.logo_bytes:
+        st.image(st.session_state.logo_bytes, width=180)
 
 st.title("✍️ Streamlit Blog Studio")
 st.caption("Outline-first AI blog writing for internal content teams")
@@ -142,11 +170,12 @@ with right:
                     max_tokens=2200,
                 )
                 parsed = parse_json_response(response)
-                st.session_state.outline_title = parsed.get("title") or inputs["title"] or inputs["topic"]
+                st.session_state.outline_title = clean_text(
+                    parsed.get("title") or inputs["title"] or inputs["topic"]
+                )
                 st.session_state.outline = parsed.get("outline", [])
                 st.session_state.sections_content = {}
 
-                # Clear any old section widget state
                 keys_to_delete = [
                     key for key in st.session_state.keys()
                     if key.startswith("content_") or key.startswith("rev_inst_")
@@ -165,16 +194,16 @@ with right:
         updated_outline: list[dict[str, Any]] = []
         for idx, section in enumerate(st.session_state.outline):
             with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
-                heading = st.text_input(f"Heading {idx + 1}", value=section.get("heading", ""), key=f"heading_{idx}")
+                heading = st.text_input(f"Heading {idx + 1}", value=clean_text(section.get("heading", "")), key=f"heading_{idx}")
                 objective = st.text_area(
                     f"Objective {idx + 1}",
-                    value=section.get("objective", ""),
+                    value=clean_text(section.get("objective", "")),
                     key=f"objective_{idx}",
                     height=80,
                 )
                 key_points_text = st.text_area(
                     f"Key points {idx + 1} (one per line)",
-                    value="\n".join(section.get("keyPoints", [])),
+                    value="\n".join(clean_text(point) for point in section.get("keyPoints", [])),
                     key=f"keypoints_{idx}",
                     height=100,
                 )
@@ -189,9 +218,9 @@ with right:
                 updated_outline.append(
                     {
                         "id": section.get("id", f"s{idx+1}"),
-                        "heading": heading,
-                        "objective": objective,
-                        "keyPoints": lines_to_list(key_points_text),
+                        "heading": clean_text(heading),
+                        "objective": clean_text(objective),
+                        "keyPoints": [clean_text(x) for x in lines_to_list(key_points_text)],
                         "suggestedWords": int(suggested_words),
                     }
                 )
@@ -202,7 +231,7 @@ st.subheader("5. Generate article sections")
 
 if st.session_state.outline:
     inputs = current_inputs()
-    title = st.session_state.outline_title or inputs["title"] or inputs["topic"]
+    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
 
     for idx, section in enumerate(st.session_state.outline):
         key = section["id"]
@@ -221,10 +250,12 @@ if st.session_state.outline:
         with col2:
             if st.button("Generate", key=f"generate_{key}"):
                 try:
-                    section_text = generate_text(
-                        section_system_prompt(),
-                        section_user_prompt(inputs, section, title, st.session_state.outline),
-                        max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
+                    section_text = clean_text(
+                        generate_text(
+                            section_system_prompt(),
+                            section_user_prompt(inputs, section, title, st.session_state.outline),
+                            max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
+                        )
                     )
                     st.session_state[content_key] = section_text
                     st.session_state.sections_content[key] = section_text
@@ -238,7 +269,7 @@ if st.session_state.outline:
             key=content_key,
             height=220,
         )
-        st.session_state.sections_content[key] = edited
+        st.session_state.sections_content[key] = clean_text(edited)
 
         revision_instruction = st.text_input(
             f"Revision instruction for {section['heading']}",
@@ -248,14 +279,16 @@ if st.session_state.outline:
 
         if st.button("Revise section", key=f"revise_{key}"):
             try:
-                revised = generate_text(
-                    revision_system_prompt(),
-                    revision_user_prompt(
-                        section["heading"],
-                        st.session_state.sections_content.get(key, ""),
-                        revision_instruction,
-                    ),
-                    max_tokens=2200,
+                revised = clean_text(
+                    generate_text(
+                        revision_system_prompt(),
+                        revision_user_prompt(
+                            section["heading"],
+                            st.session_state.sections_content.get(key, ""),
+                            revision_instruction,
+                        ),
+                        max_tokens=2200,
+                    )
                 )
                 st.session_state[content_key] = revised
                 st.session_state.sections_content[key] = revised
@@ -274,10 +307,12 @@ if st.session_state.outline:
                 continue
 
             try:
-                section_text = generate_text(
-                    section_system_prompt(),
-                    section_user_prompt(inputs, section, title, st.session_state.outline),
-                    max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
+                section_text = clean_text(
+                    generate_text(
+                        section_system_prompt(),
+                        section_user_prompt(inputs, section, title, st.session_state.outline),
+                        max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
+                    )
                 )
                 st.session_state[content_key] = section_text
                 st.session_state.sections_content[key] = section_text
@@ -303,10 +338,22 @@ if st.session_state.outline:
 
     st.text_area("Combined article preview", value=combined_markdown, height=300)
 
-    docx_bytes = export_blog_docx(title or "blog-article", ordered_sections)
-    st.download_button(
-        "Download DOCX",
-        data=docx_bytes,
-        file_name="blog-article.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
+    export_col1, export_col2 = st.columns(2)
+
+    with export_col1:
+        docx_bytes = export_blog_docx(title or "blog-article", ordered_sections)
+        st.download_button(
+            "Download DOCX",
+            data=docx_bytes,
+            file_name="blog-article.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    with export_col2:
+        pdf_bytes = export_blog_pdf(title or "blog-article", ordered_sections)
+        st.download_button(
+            "Download PDF",
+            data=pdf_bytes,
+            file_name="blog-article.pdf",
+            mime="application/pdf",
+        )
