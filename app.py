@@ -145,6 +145,15 @@ with right:
                 st.session_state.outline_title = parsed.get("title") or inputs["title"] or inputs["topic"]
                 st.session_state.outline = parsed.get("outline", [])
                 st.session_state.sections_content = {}
+
+                # Clear any old section widget state
+                keys_to_delete = [
+                    key for key in st.session_state.keys()
+                    if key.startswith("content_") or key.startswith("rev_inst_")
+                ]
+                for key in keys_to_delete:
+                    del st.session_state[key]
+
                 st.success("Outline generated.")
         except Exception as exc:
             st.error(f"Could not generate outline: {exc}")
@@ -197,10 +206,18 @@ if st.session_state.outline:
 
     for idx, section in enumerate(st.session_state.outline):
         key = section["id"]
+        content_key = f"content_{key}"
+        revision_key = f"rev_inst_{key}"
+
+        if content_key not in st.session_state:
+            st.session_state[content_key] = st.session_state.sections_content.get(key, "")
+
         col1, col2 = st.columns([5, 1])
+
         with col1:
             st.markdown(f"### {section['heading']}")
             st.caption(section.get("objective", ""))
+
         with col2:
             if st.button("Generate", key=f"generate_{key}"):
                 try:
@@ -209,32 +226,38 @@ if st.session_state.outline:
                         section_user_prompt(inputs, section, title, st.session_state.outline),
                         max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
                     )
+                    st.session_state[content_key] = section_text
                     st.session_state.sections_content[key] = section_text
                     st.success(f"Generated {section['heading']}")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Generation failed: {exc}")
 
-        current_content = st.session_state.sections_content.get(key, "")
         edited = st.text_area(
             f"Content for {section['heading']}",
-            value=current_content,
-            key=f"content_{key}",
+            key=content_key,
             height=220,
         )
         st.session_state.sections_content[key] = edited
 
         revision_instruction = st.text_input(
             f"Revision instruction for {section['heading']}",
-            key=f"rev_inst_{key}",
+            key=revision_key,
             placeholder="e.g. Make this more conversational and add one stronger example",
         )
+
         if st.button("Revise section", key=f"revise_{key}"):
             try:
                 revised = generate_text(
                     revision_system_prompt(),
-                    revision_user_prompt(section["heading"], st.session_state.sections_content.get(key, ""), revision_instruction),
+                    revision_user_prompt(
+                        section["heading"],
+                        st.session_state.sections_content.get(key, ""),
+                        revision_instruction,
+                    ),
                     max_tokens=2200,
                 )
+                st.session_state[content_key] = revised
                 st.session_state.sections_content[key] = revised
                 st.rerun()
             except Exception as exc:
@@ -245,17 +268,23 @@ if st.session_state.outline:
     if st.button("Generate all missing sections"):
         for section in st.session_state.outline:
             key = section["id"]
+            content_key = f"content_{key}"
+
             if st.session_state.sections_content.get(key, "").strip():
                 continue
+
             try:
-                st.session_state.sections_content[key] = generate_text(
+                section_text = generate_text(
                     section_system_prompt(),
                     section_user_prompt(inputs, section, title, st.session_state.outline),
                     max_tokens=min(3000, max(900, section["suggestedWords"] * 5)),
                 )
+                st.session_state[content_key] = section_text
+                st.session_state.sections_content[key] = section_text
             except Exception as exc:
                 st.error(f"Failed on {section['heading']}: {exc}")
                 break
+
         st.rerun()
 
 st.subheader("6. Export")
