@@ -1,24 +1,33 @@
 from __future__ import annotations
 
 from io import BytesIO
+
 from docx import Document
+from docx.shared import Inches
 
 
-def export_blog_docx(title: str, sections: list[dict[str, str]]) -> bytes:
-    doc = Document()
-    doc.add_heading(title, level=0)
+def export_blog_docx(title: str, sections: list[dict], logo_bytes: bytes | None = None) -> bytes:
+    document = Document()
+
+    if logo_bytes:
+        try:
+            document.add_picture(BytesIO(logo_bytes), width=Inches(1.8))
+        except Exception:
+            pass
+
+    document.add_heading(title, level=1)
 
     for section in sections:
-        heading = section.get("heading", "")
-        content = section.get("content", "")
-        if heading:
-            doc.add_heading(heading, level=1)
-        for paragraph in content.split("\n\n"):
-            paragraph = paragraph.strip()
-            if paragraph:
-                doc.add_paragraph(paragraph)
+        heading = (section.get("heading") or "").strip()
+        content = (section.get("content") or "").strip()
 
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer.getvalue()
+        if heading:
+            document.add_heading(heading, level=2)
+
+        if content:
+            for para in [p.strip() for p in content.split("\n") if p.strip()]:
+                document.add_paragraph(para)
+
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue()
