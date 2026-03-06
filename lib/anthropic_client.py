@@ -12,7 +12,7 @@ def get_client() -> Anthropic:
 
 
 def get_model() -> str:
-    return os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    return os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
 
 
 def generate_text(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> str:
