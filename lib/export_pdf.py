@@ -5,10 +5,10 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 
 
-def export_blog_pdf(title: str, sections: list[dict]) -> bytes:
+def export_blog_pdf(title: str, sections: list[dict], logo_bytes: bytes | None = None) -> bytes:
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(
@@ -21,7 +21,6 @@ def export_blog_pdf(title: str, sections: list[dict]) -> bytes:
     )
 
     styles = getSampleStyleSheet()
-
     title_style = styles["Title"]
     heading_style = styles["Heading2"]
     body_style = ParagraphStyle(
@@ -33,12 +32,22 @@ def export_blog_pdf(title: str, sections: list[dict]) -> bytes:
     )
 
     story = []
+
+    if logo_bytes:
+        try:
+            logo_stream = BytesIO(logo_bytes)
+            logo = Image(logo_stream, width=1.8 * inch, height=0.8 * inch)
+            story.append(logo)
+            story.append(Spacer(1, 0.2 * inch))
+        except Exception:
+            pass
+
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.25 * inch))
 
     for section in sections:
-        heading = section.get("heading", "").strip()
-        content = section.get("content", "").strip()
+        heading = (section.get("heading") or "").strip()
+        content = (section.get("content") or "").strip()
 
         if not heading and not content:
             continue
