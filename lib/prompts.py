@@ -15,11 +15,26 @@ def _bullet_lines(items: Iterable[str]) -> str:
     return "\n".join(f"- {x}" for x in cleaned) if cleaned else "- None provided"
 
 
+def _style_rules() -> str:
+    return """
+Style rules:
+- Write in UK English.
+- Use British spelling, grammar, and punctuation.
+- Do not use em dashes (—).
+- Do not use en dashes (–).
+- Use commas, full stops, or colons instead of long dashes.
+- Avoid AI-sounding phrasing and empty filler.
+- Avoid overdramatic phrasing.
+- Keep the writing natural, polished, and human.
+""".strip()
+
+
 def outline_system_prompt() -> str:
     return (
         "You are an expert B2B content strategist and blog editor. "
         "Create practical, high-quality blog outlines that are specific, structured, and useful for long-form content production. "
-        "Do not write the full article. Return only the outline in clean JSON."
+        "Do not write the full article. Return only the outline in clean JSON. "
+        "Use UK English and do not use em dashes or en dashes anywhere."
     )
 
 
@@ -49,6 +64,10 @@ Instructions:
 - Use the facts and quotes where they are relevant.
 - Keep headings editorial, not generic.
 - Suggested words across all sections should roughly match the target word count.
+- Use UK English in the title and all section headings.
+- Do not use em dashes or en dashes in the title, headings, or objectives.
+
+{_style_rules()}
 
 Topic: {inputs['topic']}
 Working title: {inputs['title']}
@@ -70,8 +89,9 @@ Document insights:
 
 def insights_system_prompt() -> str:
     return (
-        "You analyze uploaded research material for blog writing. "
-        "Extract concrete, useful, non-redundant insights. Return only valid JSON."
+        "You analyse uploaded research material for blog writing. "
+        "Extract concrete, useful, non-redundant insights. Return only valid JSON. "
+        "Use UK English and do not use em dashes or en dashes."
     )
 
 
@@ -90,6 +110,10 @@ Rules:
 - Keep insights factual and concise.
 - Prefer concrete findings, examples, numbers, and claims.
 - Do not invent anything not present in the source.
+- Use UK English.
+- Do not use em dashes or en dashes.
+
+{_style_rules()}
 
 Source material:
 {clipped}
@@ -99,7 +123,10 @@ Source material:
 def section_system_prompt() -> str:
     return (
         "You are a senior B2B blog writer. Write polished, engaging, non-generic article sections. "
-        "Avoid fluffy openings, repetitive transitions, and empty filler. Use the provided facts and quotes faithfully."
+        "Avoid fluffy openings, repetitive transitions, and empty filler. "
+        "Use the provided facts and quotes faithfully. "
+        "Write in UK English. Do not use em dashes or en dashes. "
+        "Use commas, full stops, or colons instead."
     )
 
 
@@ -140,17 +167,28 @@ Document insights:
 Rules:
 - Write only the section body, not the heading.
 - Use specific, human editorial language.
+- Write in UK English.
+- Use British spelling and phrasing.
+- Do not use em dashes (—).
+- Do not use en dashes (–).
+- Use commas, full stops, or colons instead.
 - Do not start with generic filler like "In today's fast-paced world".
 - If this is the introduction, open with a strong hook.
-- If this is the conclusion, synthesize the argument instead of repeating the article.
+- If this is the conclusion, synthesise the argument instead of repeating the article.
 - Do not fabricate statistics or quotes.
+- Avoid repetitive sentence openings.
+- Avoid robotic transitions such as "It is important to note" or "Another key point is".
+- Keep the rhythm natural and readable.
+
+{_style_rules()}
 '''.strip()
 
 
 def revision_system_prompt() -> str:
     return (
         "You are a precise content editor. Rewrite only the provided section while following the requested instruction. "
-        "Keep the substance accurate and preserve useful facts."
+        "Keep the substance accurate and preserve useful facts. "
+        "Write in UK English. Do not use em dashes or en dashes."
     )
 
 
@@ -159,6 +197,18 @@ def revision_user_prompt(section_heading: str, section_content: str, instruction
 Section heading: {section_heading}
 Revision instruction: {instruction}
 
-Rewrite the section below:
+Rewrite the section below.
+
+Rules:
+- Keep the meaning accurate.
+- Use UK English.
+- Do not use em dashes (—).
+- Do not use en dashes (–).
+- Use commas, full stops, or colons instead.
+- Keep the writing natural and human.
+
+{_style_rules()}
+
+Section content:
 {section_content}
 '''.strip()
