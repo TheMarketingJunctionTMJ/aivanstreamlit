@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import Any
 
 import streamlit as st
@@ -49,6 +50,7 @@ def init_state() -> None:
         "logo_bytes": None,
         "logo_name": "",
         "sections_workspace_ready": False,
+        "new_section_prompt": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -165,11 +167,90 @@ def sanitise_section_content(content: str, heading: str) -> str:
     return strip_leading_heading(clean_text(content), heading)
 
 
+def make_section_id() -> str:
+    return f"s{uuid.uuid4().hex[:8]}"
+
+
+def build_manual_section(prompt: str) -> dict[str, Any]:
+    prompt = clean_text(prompt)
+    words = [word for word in prompt.replace(",", " ").split() if word]
+    heading = " ".join(words[:12]).strip().rstrip(".") or "New section"
+    heading = heading[:1].upper() + heading[1:] if heading else "New section"
+    return {
+        "id": make_section_id(),
+        "heading": heading,
+        "objective": prompt,
+        "keyPoints": [prompt],
+        "suggestedWords": 180,
+    }
+
+
+def generate_new_section_from_prompt(one_liner: str) -> dict[str, Any]:
+    inputs = current_inputs()
+    article_title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"] or "the article")
+    existing_headings = [clean_text(section.get("heading", "")) for section in st.session_state.outline if clean_text(section.get("heading", ""))]
+
+    system_prompt = (
+        f"You are an expert blog strategist writing in {inputs['language']}. "
+        "Return valid JSON only."
+    )
+    user_prompt = f"""
+Create exactly one new blog section for this article.
+
+Article title: {article_title}
+Topic: {inputs['topic']}
+Audience: {inputs['audience']}
+Tone: {inputs['tone']}
+Target words for whole article: {inputs['target_words']}
+Existing section headings: {json.dumps(existing_headings, ensure_ascii=False)}
+Requested new section idea: {one_liner}
+
+Return JSON in this shape:
+{{
+  "heading": "...",
+  "objective": "...",
+  "keyPoints": ["...", "...", "..."],
+  "suggestedWords": 180
+}}
+
+Rules:
+- Make the new section distinct from the existing headings.
+- Keep the heading concise and publication-ready.
+- Objective should be one clear sentence.
+- keyPoints should contain 3 short bullets.
+- suggestedWords must be an integer between 120 and 350.
+- No markdown, no commentary, JSON only.
+"""
+    response = generate_text(system_prompt, user_prompt, max_tokens=900)
+    parsed = parse_json_response(response)
+    return {
+        "id": make_section_id(),
+        "heading": clean_text(parsed.get("heading", "") or one_liner),
+        "objective": clean_text(parsed.get("objective", "") or one_liner),
+        "keyPoints": [clean_text(point) for point in parsed.get("keyPoints", []) if clean_text(point)],
+        "suggestedWords": int(parsed.get("suggestedWords", 180)),
+    }
+
+
+def delete_section(section_id: str) -> None:
+    st.session_state.outline = [
+        section for section in st.session_state.outline if str(section.get("id")) != str(section_id)
+    ]
+    st.session_state.sections_content.pop(section_id, None)
+    st.session_state.pop(f"content_{section_id}", None)
+    st.session_state.pop(f"rev_inst_{section_id}", None)
+    normalise_outline()
+    if not st.session_state.outline:
+        st.session_state.sections_workspace_ready = False
+
+
 def normalise_outline() -> None:
     cleaned_outline: list[dict[str, Any]] = []
 
+    valid_section_ids: set[str] = set()
     for idx, section in enumerate(st.session_state.outline):
         section_id = str(section.get("id") or f"s{idx+1}")
+        valid_section_ids.add(section_id)
         cleaned_outline.append(
             {
                 "id": section_id,
@@ -180,10 +261,16 @@ def normalise_outline() -> None:
                     for point in section.get("keyPoints", [])
                     if clean_text(point).lstrip("- ").strip()
                 ],
-                "suggestedWords": int(section.get("suggestedWords", 180)),
+                "suggestedWords": max(80, int(section.get("suggestedWords", 180))),
             }
         )
         st.session_state.sections_content.setdefault(section_id, "")
+
+    stale_ids = [section_id for section_id in list(st.session_state.sections_content.keys()) if section_id not in valid_section_ids]
+    for stale_id in stale_ids:
+        st.session_state.sections_content.pop(stale_id, None)
+        st.session_state.pop(f"content_{stale_id}", None)
+        st.session_state.pop(f"rev_inst_{stale_id}", None)
 
     st.session_state.outline = cleaned_outline
 
@@ -314,6 +401,7 @@ with right:
                 st.session_state.outline = parsed.get("outline", [])
                 st.session_state.sections_content = {}
                 st.session_state.sections_workspace_ready = False
+                st.session_state.new_section_prompt = ""
 
                 keys_to_delete = [
                     key
@@ -333,7 +421,36 @@ with right:
         st.text_input("Final article title", key="outline_title")
         st.caption("You can edit any heading or objective before generating sections.")
 
+        with st.form("add_section_form", clear_on_submit=True):
+            add_prompt_col, add_button_col = st.columns([4, 1.2])
+            with add_prompt_col:
+                new_section_prompt = st.text_input(
+                    "Add section with a one-line prompt",
+                    key="new_section_prompt",
+                    placeholder="e.g. Add a section on implementation mistakes teams should avoid",
+                )
+            with add_button_col:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
+
+            if add_section_submitted:
+                one_liner = clean_text(new_section_prompt)
+                if not one_liner:
+                    st.error("Enter a one-line prompt for the new section.")
+                else:
+                    try:
+                        new_section = generate_new_section_from_prompt(one_liner)
+                    except Exception:
+                        new_section = build_manual_section(one_liner)
+
+                    st.session_state.outline.append(new_section)
+                    normalise_outline()
+                    st.session_state.sections_workspace_ready = True
+                    st.success("Section added.")
+                    st.rerun()
+
         updated_outline: list[dict[str, Any]] = []
+        delete_section_id: str | None = None
         for idx, section in enumerate(st.session_state.outline):
             with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
                 heading = st.text_input(
@@ -370,14 +487,20 @@ with right:
                     height=key_points_height,
                 )
 
-                suggested_words = st.number_input(
-                    f"Suggested words {idx + 1}",
-                    min_value=80,
-                    max_value=800,
-                    value=int(section.get("suggestedWords", 180)),
-                    step=20,
-                    key=f"words_{idx}",
-                )
+                section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
+                with section_controls_col1:
+                    suggested_words = st.number_input(
+                        f"Suggested words {idx + 1}",
+                        min_value=80,
+                        max_value=800,
+                        value=int(section.get("suggestedWords", 180)),
+                        step=20,
+                        key=f"words_{idx}",
+                    )
+                with section_controls_col2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("Delete section", key=f"delete_outline_{section['id']}", use_container_width=True):
+                        delete_section_id = str(section["id"])
 
                 updated_outline.append(
                     {
@@ -391,6 +514,11 @@ with right:
 
         st.session_state.outline = updated_outline
         normalise_outline()
+
+        if delete_section_id:
+            delete_section(delete_section_id)
+            st.success("Section deleted.")
+            st.rerun()
 
         st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
         prepare_col1, prepare_col2 = st.columns([1.5, 3])
@@ -446,8 +574,9 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
             except Exception as exc:
                 st.error(f"Failed while generating missing sections: {exc}")
     with top_actions_col2:
-        st.caption("Each section now opens as an expandable writing panel with its own generate and revise controls.")
+        st.caption("Each section now opens as an expandable writing panel with its own generate, revise, and delete controls.")
 
+    delete_section_id_from_workspace: str | None = None
     for idx, section in enumerate(st.session_state.outline):
         key = section["id"]
         content_key = f"content_{key}"
@@ -464,7 +593,7 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
                 st.markdown("**Key points**")
                 st.markdown("\n".join(f"- {clean_text(point)}" for point in section["keyPoints"]))
 
-            meta_col1, meta_col2 = st.columns([1, 1])
+            meta_col1, meta_col2, meta_col3 = st.columns([1, 1.2, 1])
             with meta_col1:
                 st.caption(f"Suggested words: {int(section.get('suggestedWords', 180))}")
             with meta_col2:
@@ -484,6 +613,9 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Generation failed: {exc}")
+            with meta_col3:
+                if st.button("Delete this section", key=f"delete_workspace_{key}", use_container_width=True):
+                    delete_section_id_from_workspace = str(key)
 
             current_content = st.session_state.get(content_key, "")
             content_height = calc_text_area_height(
@@ -530,6 +662,11 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Revision failed: {exc}")
+
+    if delete_section_id_from_workspace:
+        delete_section(delete_section_id_from_workspace)
+        st.success("Section deleted.")
+        st.rerun()
 
 else:
     if st.session_state.outline:
