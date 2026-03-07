@@ -1,81 +1,5 @@
-from __future__ import annotations
-
-import json
-import os
-from typing import Any
-
-import streamlit as st
-from dotenv import load_dotenv
-
-from lib.anthropic_client import generate_text
-from lib.export_docx import export_blog_docx
-from lib.export_pdf import export_blog_pdf
-from lib.file_processing import extract_text_from_upload
-from lib.prompts import (
-    TONE_OPTIONS,
-    insights_system_prompt,
-    insights_user_prompt,
-    outline_system_prompt,
-    outline_user_prompt,
-    revision_system_prompt,
-    revision_user_prompt,
-    section_system_prompt,
-    section_user_prompt,
-)
-
-load_dotenv()
-
-st.set_page_config(page_title="Streamlit Blog Studio", page_icon="✍️", layout="wide")
-
-
-def init_state() -> None:
-    defaults: dict[str, Any] = {
-        "title": "",
-        "topic": "",
-        "audience": "",
-        "keywords_text": "",
-        "facts_text": "",
-        "quotes_text": "",
-        "research_notes": "",
-        "tone": "Thought leadership",
-        "language": "UK English",
-        "target_words": 1200,
-        "document_text": "",
-        "document_insights": [],
-        "outline_title": "",
-        "outline": [],
-        "sections_content": {},
-        "logo_bytes": None,
-        "logo_name": "",
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-
-def lines_to_list(value: str) -> list[str]:
-    return [line.strip() for line in str(value).splitlines() if line.strip()]
-
-
-def current_inputs() -> dict[str, Any]:
-    return {
-        "title": st.session_state.title.strip() or st.session_state.topic.strip(),
-        "topic": st.session_state.topic.strip(),
-        "audience": st.session_state.audience.strip(),
-        "keywords": lines_to_list(st.session_state.keywords_text),
-        "facts": lines_to_list(st.session_state.facts_text),
-        "quotes": lines_to_list(st.session_state.quotes_text),
-        "research_notes": st.session_state.research_notes.strip(),
-        "tone": st.session_state.tone,
-        "language": st.session_state.language,
-        "target_words": int(st.session_state.target_words),
-        "document_insights": st.session_state.document_insights,
-    }
-
-
-def parse_json_response(text: str) -> dict[str, Any]:
-    text = text.strip()
-    if text.startswith("```"):
+from __future__ import annotations import json import os from typing import Any import streamlit as st from dotenv import load_dotenv from lib.anthropic_client import generate_text from lib.export_docx import export_blog_docx from lib.export_pdf import export_blog_pdf from lib.file_processing import extract_text_from_upload from lib.prompts import ( TONE_OPTIONS, insights_system_prompt, insights_user_prompt, outline_system_prompt, outline_user_prompt, revision_system_prompt, revision_user_prompt, section_system_prompt, section_user_prompt, ) load_dotenv() st.set_page_config(page_title="Streamlit Blog Studio", page_icon="✍️", layout="wide") def init_state() -> None: defaults: dict[str, Any] = { "title": "", "topic": "", "audience": "", "keywords_text": "", "facts_text": "", "quotes_text": "", "research_notes": "", "tone": "Thought leadership", "target_words": 1200, "document_text": "", "document_insights": [], "outline_title": "", "outline": [], "sections_content": {}, "logo_bytes": None, "logo_name": "", } for key, value in defaults.items(): if key not in st.session_state: st.session_state[key] = value def lines_to_list(value: str) -> list[str]: return [line.strip() for line in str(value).splitlines() if line.strip()] def current_inputs() -> dict[str, Any]: return { "title": st.session_state.title.strip() or st.session_state.topic.strip(), "topic": st.session_state.topic.strip(), "audience": st.session_state.audience.strip(), "keywords": lines_to_list(st.session_state.keywords_text), "facts": lines_to_list(st.session_state.facts_text), "quotes": lines_to_list(st.session_state.quotes_text), "research_notes": st.session_state.research_notes.strip(), "tone": st.session_state.tone, "target_words": int(st.session_state.target_words), "document_insights": st.session_state.document_insights, } def parse_json_response(text: str) -> dict[str, Any]: text = text.strip() if text.startswith("
+"):
         text = text.strip("`")
         if text.lower().startswith("json"):
             text = text[4:].strip()
@@ -197,7 +121,6 @@ with left:
     st.text_input("Working title", key="title", placeholder="Optional title override")
     st.text_input("Audience", key="audience", placeholder="e.g. Talent leaders at mid-size companies")
     st.selectbox("Tone", TONE_OPTIONS, key="tone")
-    st.radio("Language", ["UK English", "US English"], key="language", horizontal=True)
     st.slider("Target words", min_value=600, max_value=2500, step=100, key="target_words")
     st.text_area("SEO keywords (one per line)", key="keywords_text", height=140)
 
@@ -218,11 +141,10 @@ with left:
                 raw_text = extract_text_from_upload(uploaded.name, uploaded.getvalue())
                 st.session_state.document_text = raw_text
                 response = generate_text(
-                    insights_system_prompt(st.session_state.language),
+                    insights_system_prompt(),
                     insights_user_prompt(
                         raw_text,
                         st.session_state.topic or st.session_state.title or "blog topic",
-                        st.session_state.language,
                     ),
                     max_tokens=1800,
                 )
@@ -246,7 +168,7 @@ with right:
                 st.error("Please enter a topic first.")
             else:
                 response = generate_text(
-                    outline_system_prompt(inputs["language"]),
+                    outline_system_prompt(),
                     outline_user_prompt(inputs),
                     max_tokens=2200,
                 )
@@ -370,7 +292,7 @@ if st.session_state.outline:
                 try:
                     section_text = clean_text(
                         generate_text(
-                            section_system_prompt(inputs["language"]),
+                            section_system_prompt(),
                             section_user_prompt(inputs, section, title, st.session_state.outline),
                             max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
                         )
@@ -410,12 +332,11 @@ if st.session_state.outline:
 
                 revised = clean_text(
                     generate_text(
-                        revision_system_prompt(inputs["language"]),
+                        revision_system_prompt(),
                         revision_user_prompt(
                             section["heading"],
                             source_text,
                             revision_instruction,
-                            inputs["language"],
                         ),
                         max_tokens=2200,
                     )
@@ -442,7 +363,7 @@ if st.session_state.outline:
 
                 section_text = clean_text(
                     generate_text(
-                        section_system_prompt(inputs["language"]),
+                        section_system_prompt(),
                         section_user_prompt(inputs, section, title, st.session_state.outline),
                         max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
                     )
@@ -504,4 +425,4 @@ if st.session_state.outline:
             data=pdf_bytes,
             file_name="blog-article.pdf",
             mime="application/pdf",
-        )   and now give me the propmts.py also update it drop in without changing any thing else give me full code.
+        )  
