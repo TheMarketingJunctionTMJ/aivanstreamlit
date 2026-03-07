@@ -89,6 +89,29 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
+def to_bullet_lines(items: list[str]) -> str:
+    cleaned = []
+    for item in items:
+        text = clean_text(item).lstrip("- ").strip()
+        if text:
+            cleaned.append(f"- {text}")
+    return "\n".join(cleaned)
+
+
+def from_bullet_lines(value: str) -> list[str]:
+    cleaned = []
+    for line in lines_to_list(value):
+        text = clean_text(line).lstrip("- ").strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def calc_text_area_height(text: str, min_height: int = 140, line_px: int = 28, extra_lines: int = 2) -> int:
+    line_count = max(1, str(text or "").count("\n") + 1 + extra_lines)
+    return max(min_height, line_px * line_count)
+
+
 def normalise_outline() -> None:
     cleaned_outline: list[dict[str, Any]] = []
 
@@ -100,9 +123,9 @@ def normalise_outline() -> None:
                 "heading": clean_text(section.get("heading", "")),
                 "objective": clean_text(section.get("objective", "")),
                 "keyPoints": [
-                    clean_text(point)
+                    clean_text(point).lstrip("- ").strip()
                     for point in section.get("keyPoints", [])
-                    if clean_text(point)
+                    if clean_text(point).lstrip("- ").strip()
                 ],
                 "suggestedWords": int(section.get("suggestedWords", 180)),
             }
@@ -173,12 +196,12 @@ with left:
     st.text_input("Audience", key="audience", placeholder="e.g. Talent leaders at mid-size companies")
     st.selectbox("Tone", TONE_OPTIONS, key="tone")
     st.slider("Target words", min_value=600, max_value=2500, step=100, key="target_words")
-    st.text_area("SEO keywords (one per line)", key="keywords_text", height=120)
+    st.text_area("SEO keywords (one per line)", key="keywords_text", height=140)
 
     st.subheader("2. Facts, quotes, and notes")
-    st.text_area("Facts to include (one per line)", key="facts_text", height=140)
-    st.text_area("Quotes to include verbatim (one per line)", key="quotes_text", height=140)
-    st.text_area("Additional research notes", key="research_notes", height=140)
+    st.text_area("Facts to include (one per line)", key="facts_text", height=160)
+    st.text_area("Quotes to include verbatim (one per line)", key="quotes_text", height=160)
+    st.text_area("Additional research notes", key="research_notes", height=160)
 
     st.subheader("3. Upload research")
     uploaded = st.file_uploader(
@@ -256,18 +279,35 @@ with right:
                     value=clean_text(section.get("heading", "")),
                     key=f"heading_{idx}",
                 )
+
+                objective_value = clean_text(section.get("objective", ""))
+                objective_height = calc_text_area_height(
+                    objective_value,
+                    min_height=140,
+                    line_px=28,
+                    extra_lines=3,
+                )
                 objective = st.text_area(
                     f"Objective {idx + 1}",
-                    value=clean_text(section.get("objective", "")),
+                    value=objective_value,
                     key=f"objective_{idx}",
-                    height=80,
+                    height=objective_height,
+                )
+
+                key_points_value = to_bullet_lines(section.get("keyPoints", []))
+                key_points_height = calc_text_area_height(
+                    key_points_value,
+                    min_height=170,
+                    line_px=30,
+                    extra_lines=3,
                 )
                 key_points_text = st.text_area(
-                    f"Key points {idx + 1} (one per line)",
-                    value="\n".join(clean_text(point) for point in section.get("keyPoints", [])),
+                    f"Key points {idx + 1}",
+                    value=key_points_value,
                     key=f"keypoints_{idx}",
-                    height=100,
+                    height=key_points_height,
                 )
+
                 suggested_words = st.number_input(
                     f"Suggested words {idx + 1}",
                     min_value=80,
@@ -276,12 +316,13 @@ with right:
                     step=20,
                     key=f"words_{idx}",
                 )
+
                 updated_outline.append(
                     {
                         "id": section.get("id", f"s{idx+1}"),
                         "heading": clean_text(heading),
                         "objective": clean_text(objective),
-                        "keyPoints": [clean_text(x) for x in lines_to_list(key_points_text)],
+                        "keyPoints": from_bullet_lines(key_points_text),
                         "suggestedWords": int(suggested_words),
                     }
                 )
@@ -315,6 +356,11 @@ if st.session_state.outline:
             st.markdown(f"### {section['heading']}")
             st.caption(section.get("objective", ""))
 
+            if section.get("keyPoints"):
+                st.markdown(
+                    "\n".join(f"- {clean_text(point)}" for point in section["keyPoints"])
+                )
+
         with col2:
             if st.button("Generate", key=f"generate_{key}"):
                 try:
@@ -333,10 +379,18 @@ if st.session_state.outline:
                 except Exception as exc:
                     st.error(f"Generation failed: {exc}")
 
+        current_content = st.session_state.get(content_key, "")
+        content_height = calc_text_area_height(
+            current_content,
+            min_height=420,
+            line_px=28,
+            extra_lines=10,
+        )
+
         edited = st.text_area(
             f"Content for {section['heading']}",
             key=content_key,
-            height=220,
+            height=content_height,
         )
         st.session_state.sections_content[key] = clean_text(edited)
 
@@ -389,7 +443,6 @@ if st.session_state.outline:
                     )
                 )
 
-                # Safe here because these widget keys do not yet exist
                 st.session_state.sections_content[key] = section_text
                 st.session_state[f"content_{key}"] = section_text
                 generated_any = True
@@ -419,7 +472,14 @@ if st.session_state.outline:
         if item["content"].strip()
     )
 
-    st.text_area("Combined article preview", value=combined_markdown, height=300)
+    preview_height = calc_text_area_height(
+        combined_markdown,
+        min_height=500,
+        line_px=26,
+        extra_lines=8,
+    )
+
+    st.text_area("Combined article preview", value=combined_markdown, height=preview_height)
 
     export_col1, export_col2 = st.columns(2)
 
