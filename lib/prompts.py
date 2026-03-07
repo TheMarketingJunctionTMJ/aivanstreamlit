@@ -38,6 +38,7 @@ def outline_system_prompt() -> str:
     )
 
 
+
 def outline_user_prompt(inputs: dict) -> str:
     return f'''
 Create a blog outline in valid JSON.
@@ -87,12 +88,14 @@ Document insights:
 '''.strip()
 
 
+
 def insights_system_prompt() -> str:
     return (
         "You analyse uploaded research material for blog writing. "
         "Extract concrete, useful, non-redundant insights. Return only valid JSON. "
         "Use UK English and do not use em dashes or en dashes."
     )
+
 
 
 def insights_user_prompt(raw_text: str, topic: str) -> str:
@@ -120,6 +123,7 @@ Source material:
 '''.strip()
 
 
+
 def section_system_prompt() -> str:
     return (
         "You are a senior B2B blog writer. Write polished, engaging, non-generic article sections. "
@@ -128,6 +132,7 @@ def section_system_prompt() -> str:
         "Write in UK English. Do not use em dashes or en dashes. "
         "Use commas, full stops, or colons instead."
     )
+
 
 
 def section_user_prompt(inputs: dict, section: dict, title: str, outline: list[dict]) -> str:
@@ -184,12 +189,14 @@ Rules:
 '''.strip()
 
 
+
 def revision_system_prompt() -> str:
     return (
         "You are a precise content editor. Rewrite only the provided section while following the requested instruction. "
         "Keep the substance accurate and preserve useful facts. "
         "Write in UK English. Do not use em dashes or en dashes."
     )
+
 
 
 def revision_user_prompt(section_heading: str, section_content: str, instruction: str) -> str:
@@ -211,4 +218,66 @@ Rules:
 
 Section content:
 {section_content}
+'''.strip()
+
+
+
+def section_metadata_system_prompt() -> str:
+    return (
+        "You are an expert content strategist updating a single blog outline section. "
+        "Based on the heading and article context, generate a precise objective, 3 to 5 useful key points, and a sensible suggested word count. "
+        "Return only valid JSON in UK English. Do not use em dashes or en dashes."
+    )
+
+
+
+def section_metadata_user_prompt(inputs: dict, heading: str, outline: list[dict], section_position: int) -> str:
+    outline_text = "\n".join(
+        f"- {item['heading']}: {item['objective']} ({item['suggestedWords']} words)"
+        for item in outline
+    ) or "- No outline yet"
+    return f'''
+Generate metadata for one blog outline section.
+
+Return valid JSON in this shape:
+{{
+  "heading": "string",
+  "objective": "string",
+  "keyPoints": ["string"],
+  "suggestedWords": 180
+}}
+
+Instructions:
+- Keep the supplied heading, but you may lightly polish it for clarity.
+- Write 1 concise objective.
+- Write 3 to 5 concrete key points.
+- Suggested words should fit the overall article length.
+- Respect the article topic, audience, tone, facts, quotes, notes, and existing outline flow.
+- If this section sits near the start, make it read like an opening section.
+- If this section sits near the end, make it support a concluding arc when relevant.
+- Use UK English.
+- Do not use em dashes or en dashes.
+
+{_style_rules()}
+
+Article topic: {inputs['topic']}
+Working title: {inputs['title']}
+Audience: {inputs['audience']}
+Tone: {inputs['tone']}
+Target words: {inputs['target_words']}
+Section position: {section_position}
+Current outline:
+{outline_text}
+SEO keywords:
+{_bullet_lines(inputs['keywords'])}
+Facts:
+{_bullet_lines(inputs['facts'])}
+Quotes:
+{_bullet_lines(inputs['quotes'])}
+Research notes:
+{inputs.get('research_notes') or 'None provided'}
+Document insights:
+{_bullet_lines(inputs.get('document_insights', []))}
+Requested heading:
+{heading}
 '''.strip()
