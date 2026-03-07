@@ -9,17 +9,39 @@ TONE_OPTIONS = [
     "Editorial",
 ]
 
+LANGUAGE_OPTIONS = [
+    "UK English",
+    "US English",
+]
+
 
 def _bullet_lines(items: Iterable[str]) -> str:
     cleaned = [x.strip() for x in items if str(x).strip()]
     return "\n".join(f"- {x}" for x in cleaned) if cleaned else "- None provided"
 
 
-def _style_rules() -> str:
-    return """
-Style rules:
-- Write in UK English.
-- Use British spelling, grammar, and punctuation.
+def _language_label(language: str | None) -> str:
+    return "US English" if str(language or "").strip() == "US English" else "UK English"
+
+
+def _language_rules(language: str | None) -> str:
+    chosen_language = _language_label(language)
+    if chosen_language == "US English":
+        spelling_guidance = "Use American spelling, grammar, and punctuation."
+    else:
+        spelling_guidance = "Use British spelling, grammar, and punctuation."
+
+    return f"""
+Language rules:
+- Write in {chosen_language}.
+- {spelling_guidance}
+- Keep the language choice consistent throughout the output.
+""".strip()
+
+
+def _style_rules(language: str | None) -> str:
+    return f"""
+{_language_rules(language)}
 - Do not use em dashes (—).
 - Do not use en dashes (–).
 - Use commas, full stops, or colons instead of long dashes.
@@ -29,12 +51,13 @@ Style rules:
 """.strip()
 
 
-def outline_system_prompt() -> str:
+def outline_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
     return (
         "You are an expert B2B content strategist and blog editor. "
         "Create practical, high-quality blog outlines that are specific, structured, and useful for long-form content production. "
         "Do not write the full article. Return only the outline in clean JSON. "
-        "Use UK English and do not use em dashes or en dashes anywhere."
+        f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
 
 
@@ -64,10 +87,10 @@ Instructions:
 - Use the facts and quotes where they are relevant.
 - Keep headings editorial, not generic.
 - Suggested words across all sections should roughly match the target word count.
-- Use UK English in the title and all section headings.
+- Use {inputs['language']} in the title and all section headings.
 - Do not use em dashes or en dashes in the title, headings, or objectives.
 
-{_style_rules()}
+{_style_rules(inputs['language'])}
 
 Topic: {inputs['topic']}
 Working title: {inputs['title']}
@@ -87,15 +110,16 @@ Document insights:
 '''.strip()
 
 
-def insights_system_prompt() -> str:
+def insights_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
     return (
         "You analyse uploaded research material for blog writing. "
         "Extract concrete, useful, non-redundant insights. Return only valid JSON. "
-        "Use UK English and do not use em dashes or en dashes."
+        f"Use {chosen_language} and do not use em dashes or en dashes."
     )
 
 
-def insights_user_prompt(raw_text: str, topic: str) -> str:
+def insights_user_prompt(raw_text: str, topic: str, language: str | None = None) -> str:
     clipped = raw_text[:12000]
     return f'''
 Read the material below and extract insights useful for writing a blog on this topic: {topic}
@@ -110,22 +134,23 @@ Rules:
 - Keep insights factual and concise.
 - Prefer concrete findings, examples, numbers, and claims.
 - Do not invent anything not present in the source.
-- Use UK English.
+- Use {_language_label(language)}.
 - Do not use em dashes or en dashes.
 
-{_style_rules()}
+{_style_rules(language)}
 
 Source material:
 {clipped}
 '''.strip()
 
 
-def section_system_prompt() -> str:
+def section_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
     return (
         "You are a senior B2B blog writer. Write polished, engaging, non-generic article sections. "
         "Avoid fluffy openings, repetitive transitions, and empty filler. "
         "Use the provided facts and quotes faithfully. "
-        "Write in UK English. Do not use em dashes or en dashes. "
+        f"Write in {chosen_language}. Do not use em dashes or en dashes. "
         "Use commas, full stops, or colons instead."
     )
 
@@ -167,8 +192,8 @@ Document insights:
 Rules:
 - Write only the section body, not the heading.
 - Use specific, human editorial language.
-- Write in UK English.
-- Use British spelling and phrasing.
+- Write in {inputs['language']}.
+- Keep spelling, grammar, punctuation, and phrasing consistent with {inputs['language']}.
 - Do not use em dashes (—).
 - Do not use en dashes (–).
 - Use commas, full stops, or colons instead.
@@ -180,19 +205,20 @@ Rules:
 - Avoid robotic transitions such as "It is important to note" or "Another key point is".
 - Keep the rhythm natural and readable.
 
-{_style_rules()}
+{_style_rules(inputs['language'])}
 '''.strip()
 
 
-def revision_system_prompt() -> str:
+def revision_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
     return (
         "You are a precise content editor. Rewrite only the provided section while following the requested instruction. "
         "Keep the substance accurate and preserve useful facts. "
-        "Write in UK English. Do not use em dashes or en dashes."
+        f"Write in {chosen_language}. Do not use em dashes or en dashes."
     )
 
 
-def revision_user_prompt(section_heading: str, section_content: str, instruction: str) -> str:
+def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: str | None = None) -> str:
     return f'''
 Section heading: {section_heading}
 Revision instruction: {instruction}
@@ -201,13 +227,13 @@ Rewrite the section below.
 
 Rules:
 - Keep the meaning accurate.
-- Use UK English.
+- Use {_language_label(language)}.
 - Do not use em dashes (—).
 - Do not use en dashes (–).
 - Use commas, full stops, or colons instead.
 - Keep the writing natural and human.
 
-{_style_rules()}
+{_style_rules(language)}
 
 Section content:
 {section_content}
