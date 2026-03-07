@@ -48,6 +48,7 @@ def init_state() -> None:
         "sections_content": {},
         "logo_bytes": None,
         "logo_name": "",
+        "sections_workspace_ready": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -257,6 +258,7 @@ with right:
                 )
                 st.session_state.outline = parsed.get("outline", [])
                 st.session_state.sections_content = {}
+                st.session_state.sections_workspace_ready = False
 
                 keys_to_delete = [
                     key
@@ -331,8 +333,18 @@ with right:
                         "suggestedWords": int(suggested_words),
                     }
                 )
+
         st.session_state.outline = updated_outline
         normalise_outline()
+
+        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+        prepare_col1, prepare_col2 = st.columns([1.5, 3])
+        with prepare_col1:
+            if st.button("Generate sections", use_container_width=True):
+                st.session_state.sections_workspace_ready = True
+                st.rerun()
+        with prepare_col2:
+            st.caption("This creates the expandable section editors below in Part 5.")
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -343,9 +355,42 @@ if st.session_state.get("revision_success_message"):
 st.divider()
 st.subheader("5. Generate article sections")
 
-if st.session_state.outline:
+if st.session_state.outline and st.session_state.sections_workspace_ready:
     inputs = current_inputs()
     title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+
+    top_actions_col1, top_actions_col2 = st.columns([1.5, 4])
+    with top_actions_col1:
+        if st.button("Generate all missing sections", use_container_width=True):
+            try:
+                generated_any = False
+                for section in st.session_state.outline:
+                    key = section["id"]
+                    existing = clean_text(st.session_state.sections_content.get(key, ""))
+                    if existing:
+                        continue
+
+                    section_text = clean_text(
+                        generate_text(
+                            section_system_prompt(inputs["language"]),
+                            section_user_prompt(inputs, section, title, st.session_state.outline),
+                            max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+                        )
+                    )
+
+                    st.session_state.sections_content[key] = section_text
+                    st.session_state[f"content_{key}"] = section_text
+                    generated_any = True
+
+                if generated_any:
+                    st.success("Generated all missing sections.")
+                else:
+                    st.info("No missing sections to generate.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed while generating missing sections: {exc}")
+    with top_actions_col2:
+        st.caption("Each section now opens as an expandable writing panel with its own generate and revise controls.")
 
     for idx, section in enumerate(st.session_state.outline):
         key = section["id"]
@@ -355,115 +400,92 @@ if st.session_state.outline:
         if content_key not in st.session_state:
             st.session_state[content_key] = st.session_state.sections_content.get(key, "")
 
-        col1, col2 = st.columns([5, 1])
-
-        with col1:
-            st.markdown(f"### {section['heading']}")
+        heading_label = clean_text(section.get("heading", "Untitled section")) or "Untitled section"
+        with st.expander(f"Section {idx + 1}: {heading_label}", expanded=(idx == 0)):
             st.caption(section.get("objective", ""))
 
             if section.get("keyPoints"):
-                st.markdown(
-                    "\n".join(f"- {clean_text(point)}" for point in section["keyPoints"])
-                )
+                st.markdown("**Key points**")
+                st.markdown("\n".join(f"- {clean_text(point)}" for point in section["keyPoints"]))
 
-        with col2:
-            if st.button("Generate", key=f"generate_{key}"):
+            meta_col1, meta_col2 = st.columns([1, 1])
+            with meta_col1:
+                st.caption(f"Suggested words: {int(section.get('suggestedWords', 180))}")
+            with meta_col2:
+                if st.button("Generate this section", key=f"generate_{key}", use_container_width=True):
+                    try:
+                        section_text = clean_text(
+                            generate_text(
+                                section_system_prompt(inputs["language"]),
+                                section_user_prompt(inputs, section, title, st.session_state.outline),
+                                max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+                            )
+                        )
+                        st.session_state["pending_generation_update"] = {
+                            "section_id": key,
+                            "content": section_text,
+                        }
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Generation failed: {exc}")
+
+            current_content = st.session_state.get(content_key, "")
+            content_height = calc_text_area_height(
+                current_content,
+                min_height=420,
+                line_px=28,
+                extra_lines=10,
+            )
+
+            edited = st.text_area(
+                f"Generated content for {heading_label}",
+                key=content_key,
+                height=content_height,
+            )
+            st.session_state.sections_content[key] = clean_text(edited)
+
+            revision_instruction = st.text_input(
+                f"Revision instruction for {heading_label}",
+                key=revision_key,
+                placeholder="e.g. Make this more conversational and add one stronger example",
+            )
+
+            if st.button("Revise this section", key=f"revise_{key}"):
                 try:
-                    section_text = clean_text(
+                    source_text = clean_text(st.session_state.sections_content.get(key, ""))
+
+                    revised = clean_text(
                         generate_text(
-                            section_system_prompt(inputs["language"]),
-                            section_user_prompt(inputs, section, title, st.session_state.outline),
-                            max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+                            revision_system_prompt(inputs["language"]),
+                            revision_user_prompt(
+                                section["heading"],
+                                source_text,
+                                revision_instruction,
+                                inputs["language"],
+                            ),
+                            max_tokens=2200,
                         )
                     )
-                    st.session_state["pending_generation_update"] = {
+
+                    st.session_state["pending_revision_update"] = {
                         "section_id": key,
-                        "content": section_text,
+                        "content": revised,
                     }
                     st.rerun()
                 except Exception as exc:
-                    st.error(f"Generation failed: {exc}")
+                    st.error(f"Revision failed: {exc}")
 
-        current_content = st.session_state.get(content_key, "")
-        content_height = calc_text_area_height(
-            current_content,
-            min_height=420,
-            line_px=28,
-            extra_lines=10,
-        )
-
-        edited = st.text_area(
-            f"Content for {section['heading']}",
-            key=content_key,
-            height=content_height,
-        )
-        st.session_state.sections_content[key] = clean_text(edited)
-
-        revision_instruction = st.text_input(
-            f"Revision instruction for {section['heading']}",
-            key=revision_key,
-            placeholder="e.g. Make this more conversational and add one stronger example",
-        )
-
-        if st.button("Revise section", key=f"revise_{key}"):
-            try:
-                source_text = clean_text(st.session_state.sections_content.get(key, ""))
-
-                revised = clean_text(
-                    generate_text(
-                        revision_system_prompt(inputs["language"]),
-                        revision_user_prompt(
-                            section["heading"],
-                            source_text,
-                            revision_instruction,
-                            inputs["language"],
-                        ),
-                        max_tokens=2200,
-                    )
-                )
-
-                st.session_state["pending_revision_update"] = {
-                    "section_id": key,
-                    "content": revised,
-                }
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Revision failed: {exc}")
-
-        st.divider()
-
-    if st.button("Generate all missing sections"):
-        try:
-            generated_any = False
-            for section in st.session_state.outline:
-                key = section["id"]
-                existing = clean_text(st.session_state.sections_content.get(key, ""))
-                if existing:
-                    continue
-
-                section_text = clean_text(
-                    generate_text(
-                        section_system_prompt(inputs["language"]),
-                        section_user_prompt(inputs, section, title, st.session_state.outline),
-                        max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
-                    )
-                )
-
-                st.session_state.sections_content[key] = section_text
-                st.session_state[f"content_{key}"] = section_text
-                generated_any = True
-
-            if generated_any:
-                st.success("Generated all missing sections.")
-            else:
-                st.info("No missing sections to generate.")
-            st.rerun()
-
-        except Exception as exc:
-            st.error(f"Failed while generating missing sections: {exc}")
+else:
+    if st.session_state.outline:
+        st.info("Review the outline, then click 'Generate sections' above to open the section editors here.")
+    else:
+        st.info("Generate an outline first to create the section editors.")
 
 st.subheader("6. Export")
 if st.session_state.outline:
+    inputs = current_inputs()
+    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+
     ordered_sections = [
         {
             "heading": section["heading"],
