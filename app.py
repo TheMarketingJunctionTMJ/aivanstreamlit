@@ -58,7 +58,7 @@ def init_state() -> None:
 
 
 def lines_to_list(value: str) -> list[str]:
-    return [line.strip() for line in value.splitlines() if line.strip()]
+    return [line.strip() for line in str(value).splitlines() if line.strip()]
 
 
 def current_inputs() -> dict[str, Any]:
@@ -85,7 +85,6 @@ def parse_json_response(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
-
 def clean_text(text: str) -> str:
     text = str(text or "")
     text = text.replace("—", ", ")
@@ -93,7 +92,6 @@ def clean_text(text: str) -> str:
     while "  " in text:
         text = text.replace("  ", " ")
     return text.strip()
-
 
 
 def section_defaults(section: dict[str, Any], idx: int) -> dict[str, Any]:
@@ -104,7 +102,6 @@ def section_defaults(section: dict[str, Any], idx: int) -> dict[str, Any]:
         "keyPoints": [clean_text(x) for x in section.get("keyPoints", []) if clean_text(x)],
         "suggestedWords": int(section.get("suggestedWords", 180)),
     }
-
 
 
 def ensure_outline_state() -> None:
@@ -125,12 +122,17 @@ def ensure_outline_state() -> None:
                 max_numeric_id = max(max_numeric_id, int(section_id[1:]))
 
         used_ids.add(section_id)
-        st.session_state.sections_content.setdefault(section_id, st.session_state.sections_content.get(section_id, ""))
+        st.session_state.sections_content.setdefault(
+            section_id,
+            st.session_state.sections_content.get(section_id, ""),
+        )
         refreshed_outline.append(item)
 
     st.session_state.outline = refreshed_outline
-    st.session_state.next_section_id = max(st.session_state.get("next_section_id", 1), max_numeric_id + 1)
-
+    st.session_state.next_section_id = max(
+        int(st.session_state.get("next_section_id", 1)),
+        max_numeric_id + 1,
+    )
 
 
 def new_section_id() -> str:
@@ -140,8 +142,11 @@ def new_section_id() -> str:
     return section_id
 
 
-
-def generate_section_metadata(heading: str, outline: list[dict[str, Any]], section_position: int) -> dict[str, Any]:
+def generate_section_metadata(
+    heading: str,
+    outline: list[dict[str, Any]],
+    section_position: int,
+) -> dict[str, Any]:
     response = generate_text(
         section_metadata_system_prompt(),
         section_metadata_user_prompt(current_inputs(), heading, outline, section_position),
@@ -156,31 +161,50 @@ def generate_section_metadata(heading: str, outline: list[dict[str, Any]], secti
     }
 
 
-init_state()
+def apply_pending_section_refresh() -> None:
+    pending_section_refresh = st.session_state.pop("pending_section_refresh", None)
+    if not pending_section_refresh:
+        return
 
-if st.session_state.pop("clear_new_section_inputs", False):
-    st.session_state["new_section_topic"] = ""
-    st.session_state["new_section_position"] = min(1, len(st.session_state.get("outline", [])) + 1)
-
-pending_section_refresh = st.session_state.pop("pending_section_refresh", None)
-if pending_section_refresh:
-    target_id = pending_section_refresh.get("id")
+    target_id = str(pending_section_refresh.get("id", ""))
     metadata = pending_section_refresh.get("metadata", {})
+
     for idx, section in enumerate(st.session_state.get("outline", [])):
-        if str(section.get("id")) == str(target_id):
-            st.session_state["outline"][idx] = {
+        if str(section.get("id")) == target_id:
+            updated_section = {
                 **section_defaults(section, idx),
                 "heading": clean_text(metadata.get("heading") or section.get("heading", "")),
                 "objective": clean_text(metadata.get("objective") or section.get("objective", "")),
-                "keyPoints": [clean_text(x) for x in metadata.get("keyPoints", section.get("keyPoints", [])) if clean_text(x)],
-                "suggestedWords": int(metadata.get("suggestedWords", section.get("suggestedWords", 180))),
+                "keyPoints": [
+                    clean_text(x)
+                    for x in metadata.get("keyPoints", section.get("keyPoints", []))
+                    if clean_text(x)
+                ],
+                "suggestedWords": int(
+                    metadata.get("suggestedWords", section.get("suggestedWords", 180))
+                ),
             }
-            st.session_state[f"heading_{target_id}"] = st.session_state["outline"][idx]["heading"]
-            st.session_state[f"objective_{target_id}"] = st.session_state["outline"][idx]["objective"]
-            st.session_state[f"keypoints_{target_id}"] = "\n".join(st.session_state["outline"][idx]["keyPoints"])
-            st.session_state[f"words_{target_id}"] = st.session_state["outline"][idx]["suggestedWords"]
+
+            st.session_state.outline[idx] = updated_section
+
+            # Safe here because widgets have not been created yet in this run
+            st.session_state[f"heading_{target_id}"] = updated_section["heading"]
+            st.session_state[f"objective_{target_id}"] = updated_section["objective"]
+            st.session_state[f"keypoints_{target_id}"] = "\n".join(updated_section["keyPoints"])
+            st.session_state[f"words_{target_id}"] = updated_section["suggestedWords"]
+            st.session_state["section_refresh_success"] = f"Updated section: {updated_section['heading']}"
             break
 
+
+init_state()
+ensure_outline_state()
+
+if st.session_state.pop("clear_new_section_inputs", False):
+    st.session_state["new_section_topic"] = ""
+    st.session_state["new_section_position"] = 1
+
+apply_pending_section_refresh()
+ensure_outline_state()
 
 # Top logo area
 top_left, top_right = st.columns([1, 5])
@@ -235,7 +259,10 @@ with left:
                 st.session_state.document_text = raw_text
                 response = generate_text(
                     insights_system_prompt(),
-                    insights_user_prompt(raw_text, st.session_state.topic or st.session_state.title or "blog topic"),
+                    insights_user_prompt(
+                        raw_text,
+                        st.session_state.topic or st.session_state.title or "blog topic",
+                    ),
                     max_tokens=1800,
                 )
                 parsed = parse_json_response(response)
@@ -273,20 +300,32 @@ with right:
                 st.session_state.sections_content = {}
 
                 keys_to_delete = [
-                    key for key in st.session_state.keys()
-                    if key.startswith("content_") or key.startswith("rev_inst_")
+                    key
+                    for key in list(st.session_state.keys())
+                    if key.startswith("content_")
+                    or key.startswith("rev_inst_")
+                    or key.startswith("heading_s")
+                    or key.startswith("objective_s")
+                    or key.startswith("keypoints_s")
+                    or key.startswith("words_s")
                 ]
                 for key in keys_to_delete:
                     del st.session_state[key]
 
                 ensure_outline_state()
                 st.success("Outline generated.")
+                st.rerun()
         except Exception as exc:
             st.error(f"Could not generate outline: {exc}")
+
+    ensure_outline_state()
 
     if st.session_state.outline:
         st.text_input("Final article title", key="outline_title")
         st.caption("Edit headings, then use Update details to refresh the objective and key points for that section.")
+
+        if st.session_state.get("section_refresh_success"):
+            st.success(st.session_state.pop("section_refresh_success"))
 
         add_section_expander = st.expander("Add a new section", expanded=False)
         with add_section_expander:
@@ -295,9 +334,16 @@ with right:
                 key="new_section_topic",
                 placeholder="e.g. What candidates now expect from AI-assisted hiring",
             )
+
             max_position = len(st.session_state.outline) + 1
-            current_position = min(int(st.session_state.new_section_position), max_position)
-            st.session_state.new_section_position = current_position
+            current_position = min(
+                max(1, int(st.session_state.get("new_section_position", 1))),
+                max_position,
+            )
+
+            if st.session_state.get("new_section_position") != current_position:
+                st.session_state["new_section_position"] = current_position
+
             st.number_input(
                 "Insert position",
                 min_value=1,
@@ -306,14 +352,18 @@ with right:
                 key="new_section_position",
                 help="1 inserts at the top. The last position inserts at the end.",
             )
+
             if st.button("Generate and insert section", key="insert_new_section"):
                 try:
-                    new_heading = clean_text(st.session_state.new_section_topic)
+                    new_heading = clean_text(st.session_state.get("new_section_topic", ""))
                     if not new_heading:
                         st.error("Please enter a topic or headline for the new section.")
                     else:
-                        insert_at = int(st.session_state.new_section_position) - 1
-                        preview_outline = [section_defaults(section, idx) for idx, section in enumerate(st.session_state.outline)]
+                        insert_at = int(st.session_state.get("new_section_position", 1)) - 1
+                        preview_outline = [
+                            section_defaults(section, idx)
+                            for idx, section in enumerate(st.session_state.outline)
+                        ]
                         metadata = generate_section_metadata(new_heading, preview_outline, insert_at + 1)
                         new_section = {
                             "id": new_section_id(),
@@ -331,52 +381,74 @@ with right:
                     st.error(f"Could not add the new section: {exc}")
 
         updated_outline: list[dict[str, Any]] = []
+
         for idx, section in enumerate(st.session_state.outline):
             section = section_defaults(section, idx)
+            section_id = section["id"]
+
             with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
                 heading = st.text_input(
                     f"Heading {idx + 1}",
                     value=section["heading"],
-                    key=f"heading_{section['id']}",
+                    key=f"heading_{section_id}",
                 )
+
                 button_col1, button_col2 = st.columns([1, 1])
+
                 with button_col1:
-                    if st.button("Update details", key=f"refresh_meta_{section['id']}"):
+                    if st.button("Update details", key=f"refresh_meta_{section_id}"):
                         try:
-                            refreshed_heading = clean_text(st.session_state.get(f"heading_{section['id']}", heading))
+                            refreshed_heading = clean_text(
+                                st.session_state.get(f"heading_{section_id}", heading)
+                            )
+
                             if not refreshed_heading:
                                 st.error("Please enter a heading first.")
                             else:
                                 preview_outline = []
                                 for preview_idx, preview_section in enumerate(st.session_state.outline):
                                     base = section_defaults(preview_section, preview_idx)
-                                    draft_heading = clean_text(st.session_state.get(f"heading_{base['id']}", base["heading"]))
+                                    base_id = base["id"]
+                                    draft_heading = clean_text(
+                                        st.session_state.get(f"heading_{base_id}", base["heading"])
+                                    )
                                     if preview_idx == idx:
                                         base["heading"] = refreshed_heading
                                     else:
                                         base["heading"] = draft_heading or base["heading"]
                                     preview_outline.append(base)
 
-                                metadata = generate_section_metadata(refreshed_heading, preview_outline, idx + 1)
-                                st.session_state[f"heading_{section['id']}"] = metadata["heading"]
-                                st.session_state[f"objective_{section['id']}"] = metadata["objective"]
-                                st.session_state[f"keypoints_{section['id']}"] = "\n".join(metadata["keyPoints"])
-                                st.session_state[f"words_{section['id']}"] = metadata["suggestedWords"]
-                                st.success("Section details updated.")
+                                metadata = generate_section_metadata(
+                                    refreshed_heading,
+                                    preview_outline,
+                                    idx + 1,
+                                )
+
+                                st.session_state["pending_section_refresh"] = {
+                                    "id": section_id,
+                                    "metadata": metadata,
+                                }
                                 st.rerun()
+
                         except Exception as exc:
                             st.error(f"Could not update this section: {exc}")
+
                 with button_col2:
-                    if st.button("Delete section", key=f"delete_section_{section['id']}"):
-                        section_to_remove = section["id"]
+                    if st.button("Delete section", key=f"delete_section_{section_id}"):
                         st.session_state.outline.pop(idx)
-                        st.session_state.sections_content.pop(section_to_remove, None)
-                        st.session_state.pop(f"content_{section_to_remove}", None)
-                        st.session_state.pop(f"rev_inst_{section_to_remove}", None)
-                        st.session_state.pop(f"heading_{section_to_remove}", None)
-                        st.session_state.pop(f"objective_{section_to_remove}", None)
-                        st.session_state.pop(f"keypoints_{section_to_remove}", None)
-                        st.session_state.pop(f"words_{section_to_remove}", None)
+                        st.session_state.sections_content.pop(section_id, None)
+
+                        keys_to_remove = [
+                            f"content_{section_id}",
+                            f"rev_inst_{section_id}",
+                            f"heading_{section_id}",
+                            f"objective_{section_id}",
+                            f"keypoints_{section_id}",
+                            f"words_{section_id}",
+                        ]
+                        for key in keys_to_remove:
+                            st.session_state.pop(key, None)
+
                         ensure_outline_state()
                         st.success("Section removed.")
                         st.rerun()
@@ -384,32 +456,36 @@ with right:
                 objective = st.text_area(
                     f"Objective {idx + 1}",
                     value=section["objective"],
-                    key=f"objective_{section['id']}",
+                    key=f"objective_{section_id}",
                     height=80,
                 )
+
                 key_points_text = st.text_area(
                     f"Key points {idx + 1} (one per line)",
                     value="\n".join(section["keyPoints"]),
-                    key=f"keypoints_{section['id']}",
+                    key=f"keypoints_{section_id}",
                     height=100,
                 )
+
                 suggested_words = st.number_input(
                     f"Suggested words {idx + 1}",
                     min_value=80,
                     max_value=800,
                     value=int(section["suggestedWords"]),
                     step=20,
-                    key=f"words_{section['id']}",
+                    key=f"words_{section_id}",
                 )
+
                 updated_outline.append(
                     {
-                        "id": section.get("id", f"s{idx + 1}"),
-                        "heading": clean_text(st.session_state.get(f"heading_{section['id']}", heading)),
+                        "id": section_id,
+                        "heading": clean_text(st.session_state.get(f"heading_{section_id}", heading)),
                         "objective": clean_text(objective),
                         "keyPoints": [clean_text(x) for x in lines_to_list(key_points_text)],
                         "suggestedWords": int(suggested_words),
                     }
                 )
+
         st.session_state.outline = updated_outline
         ensure_outline_state()
 
@@ -520,7 +596,9 @@ if st.session_state.outline:
     ]
 
     combined_markdown = "\n\n".join(
-        f"## {item['heading']}\n\n{item['content']}" for item in ordered_sections if item["content"].strip()
+        f"## {item['heading']}\n\n{item['content']}"
+        for item in ordered_sections
+        if item["content"].strip()
     )
 
     st.text_area("Combined article preview", value=combined_markdown, height=300)
