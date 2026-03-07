@@ -421,17 +421,20 @@ with right:
         st.text_input("Final article title", key="outline_title")
         st.caption("You can edit any heading or objective before generating sections.")
 
-        add_prompt_col, add_button_col = st.columns([4, 1.2])
-        with add_prompt_col:
-            st.text_input(
-                "Add section with a one-line prompt",
-                key="new_section_prompt",
-                placeholder="e.g. Add a section on implementation mistakes teams should avoid",
-            )
-        with add_button_col:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("Add section", use_container_width=True):
-                one_liner = clean_text(st.session_state.new_section_prompt)
+        with st.form("add_section_form", clear_on_submit=True):
+            add_prompt_col, add_button_col = st.columns([4, 1.2])
+            with add_prompt_col:
+                new_section_prompt = st.text_input(
+                    "Add section with a one-line prompt",
+                    key="new_section_prompt",
+                    placeholder="e.g. Add a section on implementation mistakes teams should avoid",
+                )
+            with add_button_col:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
+
+            if add_section_submitted:
+                one_liner = clean_text(new_section_prompt)
                 if not one_liner:
                     st.error("Enter a one-line prompt for the new section.")
                 else:
@@ -443,7 +446,6 @@ with right:
                     st.session_state.outline.append(new_section)
                     normalise_outline()
                     st.session_state.sections_workspace_ready = True
-                    st.session_state.new_section_prompt = ""
                     st.success("Section added.")
                     st.rerun()
 
