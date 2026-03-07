@@ -1,5 +1,79 @@
-from __future__ import annotations import json import os from typing import Any import streamlit as st from dotenv import load_dotenv from lib.anthropic_client import generate_text from lib.export_docx import export_blog_docx from lib.export_pdf import export_blog_pdf from lib.file_processing import extract_text_from_upload from lib.prompts import ( TONE_OPTIONS, insights_system_prompt, insights_user_prompt, outline_system_prompt, outline_user_prompt, revision_system_prompt, revision_user_prompt, section_system_prompt, section_user_prompt, ) load_dotenv() st.set_page_config(page_title="Streamlit Blog Studio", page_icon="✍️", layout="wide") def init_state() -> None: defaults: dict[str, Any] = { "title": "", "topic": "", "audience": "", "keywords_text": "", "facts_text": "", "quotes_text": "", "research_notes": "", "tone": "Thought leadership", "target_words": 1200, "document_text": "", "document_insights": [], "outline_title": "", "outline": [], "sections_content": {}, "logo_bytes": None, "logo_name": "", } for key, value in defaults.items(): if key not in st.session_state: st.session_state[key] = value def lines_to_list(value: str) -> list[str]: return [line.strip() for line in str(value).splitlines() if line.strip()] def current_inputs() -> dict[str, Any]: return { "title": st.session_state.title.strip() or st.session_state.topic.strip(), "topic": st.session_state.topic.strip(), "audience": st.session_state.audience.strip(), "keywords": lines_to_list(st.session_state.keywords_text), "facts": lines_to_list(st.session_state.facts_text), "quotes": lines_to_list(st.session_state.quotes_text), "research_notes": st.session_state.research_notes.strip(), "tone": st.session_state.tone, "target_words": int(st.session_state.target_words), "document_insights": st.session_state.document_insights, } def parse_json_response(text: str) -> dict[str, Any]: text = text.strip() if text.startswith("
-"):
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+import streamlit as st
+from dotenv import load_dotenv
+
+from lib.anthropic_client import generate_text
+from lib.export_docx import export_blog_docx
+from lib.export_pdf import export_blog_pdf
+from lib.file_processing import extract_text_from_upload
+from lib.prompts import (
+    TONE_OPTIONS,
+    insights_system_prompt,
+    insights_user_prompt,
+    outline_system_prompt,
+    outline_user_prompt,
+    revision_system_prompt,
+    revision_user_prompt,
+    section_system_prompt,
+    section_user_prompt,
+)
+
+load_dotenv()
+
+st.set_page_config(page_title="Streamlit Blog Studio", page_icon="✍️", layout="wide")
+
+
+def init_state() -> None:
+    defaults: dict[str, Any] = {
+        "title": "",
+        "topic": "",
+        "audience": "",
+        "keywords_text": "",
+        "facts_text": "",
+        "quotes_text": "",
+        "research_notes": "",
+        "tone": "Thought leadership",
+        "target_words": 1200,
+        "document_text": "",
+        "document_insights": [],
+        "outline_title": "",
+        "outline": [],
+        "sections_content": {},
+        "logo_bytes": None,
+        "logo_name": "",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def lines_to_list(value: str) -> list[str]:
+    return [line.strip() for line in str(value).splitlines() if line.strip()]
+
+
+def current_inputs() -> dict[str, Any]:
+    return {
+        "title": st.session_state.title.strip() or st.session_state.topic.strip(),
+        "topic": st.session_state.topic.strip(),
+        "audience": st.session_state.audience.strip(),
+        "keywords": lines_to_list(st.session_state.keywords_text),
+        "facts": lines_to_list(st.session_state.facts_text),
+        "quotes": lines_to_list(st.session_state.quotes_text),
+        "research_notes": st.session_state.research_notes.strip(),
+        "tone": st.session_state.tone,
+        "target_words": int(st.session_state.target_words),
+        "document_insights": st.session_state.document_insights,
+    }
+
+
+def parse_json_response(text: str) -> dict[str, Any]:
+    text = text.strip()
+    if text.startswith("```"):
         text = text.strip("`")
         if text.lower().startswith("json"):
             text = text[4:].strip()
@@ -425,4 +499,4 @@ if st.session_state.outline:
             data=pdf_bytes,
             file_name="blog-article.pdf",
             mime="application/pdf",
-        )  
+        )
