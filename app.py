@@ -81,7 +81,7 @@ def current_inputs() -> dict[str, Any]:
         "language": st.session_state.language,
         "target_words": int(st.session_state.target_words),
         "document_insights": st.session_state.document_insights,
-        "verified_evidence": st.session_state.get("verified_evidence", {}),
+        "verified_evidence": st.session_state.verified_evidence,
     }
 
 
