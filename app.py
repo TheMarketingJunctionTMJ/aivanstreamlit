@@ -175,6 +175,39 @@ def sanitise_section_content(content: str, heading: str) -> str:
     return strip_leading_heading(clean_text(content), heading)
 
 
+def count_words_in_sections(ordered_sections: list[dict[str, str]]) -> int:
+    total_text = " ".join(
+        clean_text(section.get("content", ""))
+        for section in ordered_sections
+        if clean_text(section.get("content", ""))
+    )
+    return len(total_text.split())
+
+
+def build_export_sections_with_appendix(
+    ordered_sections: list[dict[str, str]],
+    keywords: list[str],
+) -> list[dict[str, str]]:
+    total_words = count_words_in_sections(ordered_sections)
+    cleaned_keywords = [clean_text(keyword) for keyword in keywords if clean_text(keyword)]
+
+    appendix_lines = [f"Total number of words: {total_words}"]
+
+    if cleaned_keywords:
+        appendix_lines.append("SEO keywords used: " + ", ".join(cleaned_keywords))
+    else:
+        appendix_lines.append("SEO keywords used: None provided")
+
+    export_sections = list(ordered_sections)
+    export_sections.append(
+        {
+            "heading": "Article metadata",
+            "content": "\n\n".join(appendix_lines),
+        }
+    )
+    return export_sections
+
+
 def make_section_id() -> str:
     return f"s{uuid.uuid4().hex[:8]}"
 
@@ -786,9 +819,14 @@ if st.session_state.outline:
         for section in st.session_state.outline
     ]
 
+    export_sections = build_export_sections_with_appendix(
+        ordered_sections,
+        inputs["keywords"],
+    )
+
     combined_markdown = "\n\n".join(
         f"## {item['heading']}\n\n{item['content']}"
-        for item in ordered_sections
+        for item in export_sections
         if item["content"].strip()
     )
 
@@ -804,7 +842,7 @@ if st.session_state.outline:
     export_col1, export_col2 = st.columns(2)
 
     with export_col1:
-        docx_bytes = export_blog_docx(title or "blog-article", ordered_sections)
+        docx_bytes = export_blog_docx(title or "blog-article", export_sections)
         st.download_button(
             "Download DOCX",
             data=docx_bytes,
@@ -813,7 +851,7 @@ if st.session_state.outline:
         )
 
     with export_col2:
-        pdf_bytes = export_blog_pdf(title or "blog-article", ordered_sections)
+        pdf_bytes = export_blog_pdf(title or "blog-article", export_sections)
         st.download_button(
             "Download PDF",
             data=pdf_bytes,
