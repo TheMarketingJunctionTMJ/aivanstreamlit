@@ -58,7 +58,7 @@ def evaluate_system_prompt(language: str | None = None) -> str:
         "Identify the most useful material, candidate claims, examples, statistics, and direct quotes. "
         "Separate strong evidence from vague or weak material. "
         "Return only valid JSON. "
-        f"Use {chosen_language} and do not use em dashes or en dashes."
+        f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
 
 
@@ -98,7 +98,7 @@ def verify_system_prompt(language: str | None = None) -> str:
         "Check whether each candidate point or quote is supported by the provided source material. "
         "Only keep material that is supported. "
         "Return only valid JSON. "
-        f"Use {chosen_language} and do not use em dashes or en dashes."
+        f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
 
 
@@ -108,10 +108,10 @@ def verify_user_prompt(
     topic: str,
     language: str | None = None,
 ) -> str:
-    clipped = str(evidence_text or "")[:15000]
     clipped_candidates = str(evaluated_material_json or "")[:9000]
+    clipped_source = str(evidence_text or "")[:15000]
     return f'''
-Verify the candidate material below for a blog on this topic: {topic}
+Verify the candidate material below for writing a blog on this topic: {topic}
 
 Return valid JSON in this shape:
 {{
@@ -134,7 +134,7 @@ Candidate material:
 {clipped_candidates}
 
 Source material:
-{clipped}
+{clipped_source}
 '''.strip()
 
 
@@ -149,10 +149,10 @@ def outline_system_prompt(language: str | None = None) -> str:
 
 
 def outline_user_prompt(inputs: dict) -> str:
-    verified = inputs.get("verified_evidence", {}) or {}
-    verified_points = verified.get("verified_points", []) or []
-    verified_quotes = verified.get("verified_quotes", []) or []
-    unsupported_points = verified.get("unsupported_points", []) or []
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
 
     return f'''
 Create a blog outline in valid JSON.
@@ -192,28 +192,20 @@ Working title: {inputs['title']}
 Audience: {inputs['audience']}
 Tone: {inputs['tone']}
 Target words: {inputs['target_words']}
-
 Verified points:
 {_bullet_lines(verified_points)}
-
 Verified quotes:
 {_bullet_lines(verified_quotes)}
-
 Unsupported or weak points to avoid treating as established fact:
 {_bullet_lines(unsupported_points)}
-
 SEO keywords:
 {_bullet_lines(inputs['keywords'])}
-
 Facts:
 {_bullet_lines(inputs['facts'])}
-
 Quotes:
 {_bullet_lines(inputs['quotes'])}
-
 Research notes:
 {inputs.get('research_notes') or 'None provided'}
-
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
 '''.strip()
@@ -269,11 +261,10 @@ def section_user_prompt(inputs: dict, section: dict, title: str, outline: list[d
         f"- {item['heading']}: {item['objective']} ({item['suggestedWords']} words)"
         for item in outline
     )
-
-    verified = inputs.get("verified_evidence", {}) or {}
-    verified_points = verified.get("verified_points", []) or []
-    verified_quotes = verified.get("verified_quotes", []) or []
-    unsupported_points = verified.get("unsupported_points", []) or []
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
 
     return f'''
 Write only this one section of the blog article.
@@ -295,25 +286,18 @@ Suggested words for this section: {section['suggestedWords']}
 
 Verified points to use where relevant:
 {_bullet_lines(verified_points)}
-
 Verified quotes to use verbatim where relevant:
 {_bullet_lines(verified_quotes)}
-
 Unsupported or weak points that must not be presented as established fact:
 {_bullet_lines(unsupported_points)}
-
 Facts that must be reflected where relevant:
 {_bullet_lines(inputs['facts'])}
-
 Quotes that should be used verbatim where relevant:
 {_bullet_lines(inputs['quotes'])}
-
 SEO keywords:
 {_bullet_lines(inputs['keywords'])}
-
 Research notes:
 {inputs.get('research_notes') or 'None provided'}
-
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
 
@@ -350,12 +334,7 @@ def revision_system_prompt(language: str | None = None) -> str:
     )
 
 
-def revision_user_prompt(
-    section_heading: str,
-    section_content: str,
-    instruction: str,
-    language: str | None = None,
-) -> str:
+def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: str | None = None) -> str:
     return f'''
 Section heading: {section_heading}
 Revision instruction: {instruction}
