@@ -61,6 +61,7 @@ def init_state() -> None:
         "seo_keyword_suggestions": [],
         "selected_seo_keywords": [],
         "show_seo_keyword_dialog": False,
+        "pending_outline_generation": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -321,6 +322,8 @@ def run_evan_light(inputs: dict[str, Any]) -> None:
 
 
 def run_outline_generation() -> None:
+    st.session_state.pending_outline_generation = False
+
     inputs = current_inputs()
     if not inputs["topic"]:
         st.error("Please enter a topic first.")
@@ -505,6 +508,10 @@ init_state()
 apply_pending_content_updates()
 normalise_outline()
 
+if st.session_state.get("pending_outline_generation"):
+    with st.spinner("Generating outline..."):
+        run_outline_generation()
+
 if st.session_state.show_seo_keyword_dialog:
     @st.dialog("Choose recommended SEO keywords")
     def seo_keywords_dialog() -> None:
@@ -552,9 +559,14 @@ if st.session_state.show_seo_keyword_dialog:
         with action_col2:
             if st.button("Generate outline", use_container_width=True, type="primary"):
                 selected_keywords = st.session_state.get("selected_seo_keywords", [])
-                if selected_keywords:
+
+                if not selected_keywords:
+                    st.warning("Please select at least one SEO keyword.")
+                else:
                     st.session_state.keywords_text = "\n".join(selected_keywords)
-                run_outline_generation()
+                    st.session_state.show_seo_keyword_dialog = False
+                    st.session_state.pending_outline_generation = True
+                    st.rerun()
 
     seo_keywords_dialog()
 
