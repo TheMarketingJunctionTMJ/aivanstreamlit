@@ -15,6 +15,8 @@ from lib.file_processing import extract_text_from_upload
 from lib.prompts import (
     LANGUAGE_OPTIONS,
     TONE_OPTIONS,
+    evaluate_system_prompt,
+    evaluate_user_prompt,
     insights_system_prompt,
     insights_user_prompt,
     outline_system_prompt,
@@ -23,6 +25,8 @@ from lib.prompts import (
     revision_user_prompt,
     section_system_prompt,
     section_user_prompt,
+    verify_system_prompt,
+    verify_user_prompt,
 )
 
 load_dotenv()
@@ -44,6 +48,9 @@ def init_state() -> None:
         "target_words": 1200,
         "document_text": "",
         "document_insights": [],
+        "quoted_lines": [],
+        "evaluated_evidence": {},
+        "verified_evidence": {},
         "outline_title": "",
         "outline": [],
         "sections_content": {},
@@ -74,6 +81,7 @@ def current_inputs() -> dict[str, Any]:
         "language": st.session_state.language,
         "target_words": int(st.session_state.target_words),
         "document_insights": st.session_state.document_insights,
+        "verified_evidence": st.session_state.get("verified_evidence", {}),
     }
 
 
@@ -183,6 +191,59 @@ def build_manual_section(prompt: str) -> dict[str, Any]:
         "keyPoints": [prompt],
         "suggestedWords": 180,
     }
+
+
+def build_evidence_bundle(inputs: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    if inputs["facts"]:
+        parts.append("User facts:\n" + "\n".join(f"- {clean_text(x)}" for x in inputs["facts"] if clean_text(x)))
+
+    if inputs["quotes"]:
+        parts.append("User quotes:\n" + "\n".join(f"- {clean_text(x)}" for x in inputs["quotes"] if clean_text(x)))
+
+    if inputs["research_notes"]:
+        parts.append("Research notes:\n" + clean_text(inputs["research_notes"]))
+
+    if st.session_state.document_text.strip():
+        parts.append("Uploaded document text:\n" + st.session_state.document_text[:12000])
+
+    return "\n\n".join(parts).strip()
+
+
+def run_evan_light(inputs: dict[str, Any]) -> None:
+    evidence_text = build_evidence_bundle(inputs)
+
+    if not evidence_text:
+        st.session_state.evaluated_evidence = {}
+        st.session_state.verified_evidence = {}
+        return
+
+    evaluated_response = generate_text(
+        evaluate_system_prompt(inputs["language"]),
+        evaluate_user_prompt(
+            evidence_text,
+            inputs["topic"] or inputs["title"] or "blog topic",
+            inputs["language"],
+        ),
+        max_tokens=1800,
+    )
+    evaluated = parse_json_response(evaluated_response)
+
+    verified_response = generate_text(
+        verify_system_prompt(inputs["language"]),
+        verify_user_prompt(
+            json.dumps(evaluated, ensure_ascii=False),
+            evidence_text,
+            inputs["topic"] or inputs["title"] or "blog topic",
+            inputs["language"],
+        ),
+        max_tokens=1800,
+    )
+    verified = parse_json_response(verified_response)
+
+    st.session_state.evaluated_evidence = evaluated
+    st.session_state.verified_evidence = verified
 
 
 def generate_new_section_from_prompt(one_liner: str) -> dict[str, Any]:
@@ -372,6 +433,7 @@ with left:
                 )
                 parsed = parse_json_response(response)
                 st.session_state.document_insights = parsed.get("insights", [])[:12]
+                st.session_state.quoted_lines = parsed.get("quoted_lines", [])[:12]
                 st.success("Document insights extracted.")
             except Exception as exc:
                 st.error(f"Could not process upload: {exc}")
@@ -389,6 +451,9 @@ with right:
             if not inputs["topic"]:
                 st.error("Please enter a topic first.")
             else:
+                run_evan_light(inputs)
+                inputs = current_inputs()
+
                 response = generate_text(
                     outline_system_prompt(inputs["language"]),
                     outline_user_prompt(inputs),
@@ -416,6 +481,22 @@ with right:
                 st.rerun()
         except Exception as exc:
             st.error(f"Could not generate outline: {exc}")
+
+    verified = st.session_state.get("verified_evidence", {}) or {}
+    if verified.get("verified_points") or verified.get("verified_quotes"):
+        with st.expander("Verified evidence used for planning", expanded=False):
+            if verified.get("verified_points"):
+                st.markdown("**Verified points**")
+                for item in verified.get("verified_points", [])[:10]:
+                    st.write(f"- {item}")
+            if verified.get("verified_quotes"):
+                st.markdown("**Verified quotes**")
+                for item in verified.get("verified_quotes", [])[:6]:
+                    st.write(f"- {item}")
+            if verified.get("unsupported_points"):
+                st.markdown("**Unsupported or weak points**")
+                for item in verified.get("unsupported_points", [])[:6]:
+                    st.write(f"- {item}")
 
     if st.session_state.outline:
         st.text_input("Final article title", key="outline_title")
