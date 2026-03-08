@@ -179,6 +179,11 @@ def sanitise_section_content(content: str, heading: str) -> str:
     return strip_leading_heading(clean_text(content), heading)
 
 
+def section_max_tokens(suggested_words: int) -> int:
+    target = max(80, int(suggested_words))
+    return min(1400, max(250, int(target * 1.35)))
+
+
 def count_words_in_sections(ordered_sections: list[dict[str, str]]) -> int:
     total_text = " ".join(
         clean_text(section.get("content", ""))
@@ -458,11 +463,18 @@ def generate_missing_sections(inputs: dict[str, Any], title: str) -> bool:
         if existing:
             continue
 
+        tighter_section = dict(section)
+        tighter_section["objective"] = (
+            f"{clean_text(section.get('objective', ''))} "
+            f"Write approximately {int(section['suggestedWords'])} words. "
+            f"Do not exceed the target by more than 120 words."
+        ).strip()
+
         section_text = sanitise_section_content(
             generate_text(
                 section_system_prompt(inputs["language"]),
-                section_user_prompt(inputs, section, title, st.session_state.outline),
-                max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+                section_user_prompt(inputs, tighter_section, title, st.session_state.outline),
+                max_tokens=section_max_tokens(int(section["suggestedWords"])),
             ),
             section.get("heading", ""),
         )
@@ -850,11 +862,18 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
             with meta_col2:
                 if st.button("Generate this section", key=f"generate_{key}", use_container_width=True):
                     try:
+                        tighter_section = dict(section)
+                        tighter_section["objective"] = (
+                            f"{clean_text(section.get('objective', ''))} "
+                            f"Write approximately {int(section['suggestedWords'])} words. "
+                            f"Do not exceed the target by more than 120 words."
+                        ).strip()
+
                         section_text = clean_text(
                             generate_text(
                                 section_system_prompt(inputs["language"]),
-                                section_user_prompt(inputs, section, title, st.session_state.outline),
-                                max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+                                section_user_prompt(inputs, tighter_section, title, st.session_state.outline),
+                                max_tokens=section_max_tokens(int(section["suggestedWords"])),
                             )
                         )
                         st.session_state["pending_generation_update"] = {
