@@ -336,6 +336,30 @@ def normalise_outline() -> None:
     st.session_state.outline = cleaned_outline
 
 
+def generate_missing_sections(inputs: dict[str, Any], title: str) -> bool:
+    generated_any = False
+    for section in st.session_state.outline:
+        key = section["id"]
+        existing = clean_text(st.session_state.sections_content.get(key, ""))
+        if existing:
+            continue
+
+        section_text = sanitise_section_content(
+            generate_text(
+                section_system_prompt(inputs["language"]),
+                section_user_prompt(inputs, section, title, st.session_state.outline),
+                max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
+            ),
+            section.get("heading", ""),
+        )
+
+        st.session_state.sections_content[key] = section_text
+        st.session_state[f"content_{key}"] = section_text
+        generated_any = True
+
+    return generated_any
+
+
 def apply_pending_content_updates() -> None:
     pending_generation = st.session_state.pop("pending_generation_update", None)
     if pending_generation:
@@ -605,10 +629,20 @@ with right:
         prepare_col1, prepare_col2 = st.columns([1.5, 3])
         with prepare_col1:
             if st.button("Generate sections", use_container_width=True):
-                st.session_state.sections_workspace_ready = True
-                st.rerun()
+                try:
+                    st.session_state.sections_workspace_ready = True
+                    inputs = current_inputs()
+                    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+                    generated_any = generate_missing_sections(inputs, title)
+                    if generated_any:
+                        st.session_state["generation_success_message"] = "Generated all sections."
+                    else:
+                        st.session_state["generation_success_message"] = "All sections were already generated."
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed while generating sections: {exc}")
         with prepare_col2:
-            st.caption("This creates the expandable section editors below in Part 5.")
+            st.caption("This generates every missing section below in Part 5. Use Revise later for changes.")
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -627,26 +661,7 @@ if st.session_state.outline and st.session_state.sections_workspace_ready:
     with top_actions_col1:
         if st.button("Generate all missing sections", use_container_width=True):
             try:
-                generated_any = False
-                for section in st.session_state.outline:
-                    key = section["id"]
-                    existing = clean_text(st.session_state.sections_content.get(key, ""))
-                    if existing:
-                        continue
-
-                    section_text = sanitise_section_content(
-                        generate_text(
-                            section_system_prompt(inputs["language"]),
-                            section_user_prompt(inputs, section, title, st.session_state.outline),
-                            max_tokens=min(3000, max(900, int(section["suggestedWords"]) * 5)),
-                        ),
-                        section.get("heading", ""),
-                    )
-
-                    st.session_state.sections_content[key] = section_text
-                    st.session_state[f"content_{key}"] = section_text
-                    generated_any = True
-
+                generated_any = generate_missing_sections(inputs, title)
                 if generated_any:
                     st.success("Generated all missing sections.")
                 else:
