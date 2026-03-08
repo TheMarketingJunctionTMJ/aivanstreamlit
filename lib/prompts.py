@@ -16,7 +16,7 @@ LANGUAGE_OPTIONS = [
 
 
 def _bullet_lines(items: Iterable[str]) -> str:
-    cleaned = [x.strip() for x in items if str(x).strip()]
+    cleaned = [str(x).strip() for x in items if str(x).strip()]
     return "\n".join(f"- {x}" for x in cleaned) if cleaned else "- None provided"
 
 
@@ -51,6 +51,93 @@ def _style_rules(language: str | None) -> str:
 """.strip()
 
 
+def evaluate_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
+    return (
+        "You evaluate source material for blog writing. "
+        "Identify the most useful material, candidate claims, examples, statistics, and direct quotes. "
+        "Separate strong evidence from vague or weak material. "
+        "Return only valid JSON. "
+        f"Use {chosen_language} and do not use em dashes or en dashes."
+    )
+
+
+def evaluate_user_prompt(evidence_text: str, topic: str, language: str | None = None) -> str:
+    clipped = str(evidence_text or "")[:15000]
+    return f'''
+Evaluate the material below for writing a blog on this topic: {topic}
+
+Return valid JSON in this shape:
+{{
+  "useful_points": ["string"],
+  "candidate_claims": ["string"],
+  "examples": ["string"],
+  "statistics": ["string"],
+  "quotes": ["string"],
+  "weak_points": ["string"]
+}}
+
+Rules:
+- Keep points factual and concise.
+- Prefer concrete findings, examples, numbers, and clearly stated claims.
+- Do not invent anything not present in the source.
+- Use {_language_label(language)}.
+- Do not use em dashes or en dashes.
+
+{_style_rules(language)}
+
+Source material:
+{clipped}
+'''.strip()
+
+
+def verify_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
+    return (
+        "You verify evidence for blog writing. "
+        "Check whether each candidate point or quote is supported by the provided source material. "
+        "Only keep material that is supported. "
+        "Return only valid JSON. "
+        f"Use {chosen_language} and do not use em dashes or en dashes."
+    )
+
+
+def verify_user_prompt(
+    evaluated_material_json: str,
+    evidence_text: str,
+    topic: str,
+    language: str | None = None,
+) -> str:
+    clipped = str(evidence_text or "")[:15000]
+    clipped_candidates = str(evaluated_material_json or "")[:9000]
+    return f'''
+Verify the candidate material below for a blog on this topic: {topic}
+
+Return valid JSON in this shape:
+{{
+  "verified_points": ["string"],
+  "verified_quotes": ["string"],
+  "unsupported_points": ["string"]
+}}
+
+Rules:
+- Only mark a point or quote as verified if it is supported by the source material.
+- Keep wording faithful to the source where possible.
+- Exclude anything vague, unsupported, or weakly implied.
+- Do not invent support.
+- Use {_language_label(language)}.
+- Do not use em dashes or en dashes.
+
+{_style_rules(language)}
+
+Candidate material:
+{clipped_candidates}
+
+Source material:
+{clipped}
+'''.strip()
+
+
 def outline_system_prompt(language: str | None = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -62,6 +149,11 @@ def outline_system_prompt(language: str | None = None) -> str:
 
 
 def outline_user_prompt(inputs: dict) -> str:
+    verified = inputs.get("verified_evidence", {}) or {}
+    verified_points = verified.get("verified_points", []) or []
+    verified_quotes = verified.get("verified_quotes", []) or []
+    unsupported_points = verified.get("unsupported_points", []) or []
+
     return f'''
 Create a blog outline in valid JSON.
 
@@ -89,6 +181,9 @@ Instructions:
 - Suggested words across all sections should roughly match the target word count.
 - Use {inputs['language']} in the title and all section headings.
 - Do not use em dashes or en dashes in the title, headings, or objectives.
+- Prioritise verified evidence where available.
+- If verified evidence exists, do not build major sections around unsupported points.
+- If little or no verified evidence exists, you may rely on general knowledge, but avoid overly specific statistics or named claims unless supplied.
 
 {_style_rules(inputs['language'])}
 
@@ -97,14 +192,28 @@ Working title: {inputs['title']}
 Audience: {inputs['audience']}
 Tone: {inputs['tone']}
 Target words: {inputs['target_words']}
+
+Verified points:
+{_bullet_lines(verified_points)}
+
+Verified quotes:
+{_bullet_lines(verified_quotes)}
+
+Unsupported or weak points to avoid treating as established fact:
+{_bullet_lines(unsupported_points)}
+
 SEO keywords:
 {_bullet_lines(inputs['keywords'])}
+
 Facts:
 {_bullet_lines(inputs['facts'])}
+
 Quotes:
 {_bullet_lines(inputs['quotes'])}
+
 Research notes:
 {inputs.get('research_notes') or 'None provided'}
+
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
 '''.strip()
@@ -160,6 +269,12 @@ def section_user_prompt(inputs: dict, section: dict, title: str, outline: list[d
         f"- {item['heading']}: {item['objective']} ({item['suggestedWords']} words)"
         for item in outline
     )
+
+    verified = inputs.get("verified_evidence", {}) or {}
+    verified_points = verified.get("verified_points", []) or []
+    verified_quotes = verified.get("verified_quotes", []) or []
+    unsupported_points = verified.get("unsupported_points", []) or []
+
     return f'''
 Write only this one section of the blog article.
 
@@ -178,14 +293,27 @@ Required key points:
 {_bullet_lines(section.get('keyPoints', []))}
 Suggested words for this section: {section['suggestedWords']}
 
+Verified points to use where relevant:
+{_bullet_lines(verified_points)}
+
+Verified quotes to use verbatim where relevant:
+{_bullet_lines(verified_quotes)}
+
+Unsupported or weak points that must not be presented as established fact:
+{_bullet_lines(unsupported_points)}
+
 Facts that must be reflected where relevant:
 {_bullet_lines(inputs['facts'])}
+
 Quotes that should be used verbatim where relevant:
 {_bullet_lines(inputs['quotes'])}
+
 SEO keywords:
 {_bullet_lines(inputs['keywords'])}
+
 Research notes:
 {inputs.get('research_notes') or 'None provided'}
+
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
 
@@ -201,6 +329,10 @@ Rules:
 - If this is the introduction, open with a strong hook.
 - If this is the conclusion, synthesise the argument instead of repeating the article.
 - Do not fabricate statistics or quotes.
+- Use verified evidence where relevant.
+- Use verified quotes verbatim where relevant.
+- Do not introduce unsupported numbers, named studies, or precise claims as fact.
+- If no verified evidence is available, write from general knowledge and keep claims broad rather than overly specific.
 - Avoid repetitive sentence openings.
 - Avoid robotic transitions such as "It is important to note" or "Another key point is".
 - Keep the rhythm natural and readable.
@@ -218,7 +350,12 @@ def revision_system_prompt(language: str | None = None) -> str:
     )
 
 
-def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: str | None = None) -> str:
+def revision_user_prompt(
+    section_heading: str,
+    section_content: str,
+    instruction: str,
+    language: str | None = None,
+) -> str:
     return f'''
 Section heading: {section_heading}
 Revision instruction: {instruction}
@@ -232,6 +369,7 @@ Rules:
 - Do not use en dashes (–).
 - Use commas, full stops, or colons instead.
 - Keep the writing natural and human.
+- Do not introduce unsupported statistics, studies, or quotes.
 
 {_style_rules(language)}
 
