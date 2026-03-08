@@ -58,6 +58,9 @@ def init_state() -> None:
         "logo_name": "",
         "sections_workspace_ready": False,
         "new_section_prompt": "",
+        "seo_keyword_suggestions": [],
+        "selected_seo_keywords": [],
+        "show_seo_keyword_dialog": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -244,6 +247,44 @@ def build_evidence_bundle(inputs: dict[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
+def suggest_seo_keywords(inputs: dict[str, Any]) -> list[str]:
+    topic = clean_text(inputs["topic"] or inputs["title"] or "blog topic")
+    audience = clean_text(inputs["audience"])
+
+    system_prompt = (
+        f"You are an SEO strategist writing in {inputs['language']}. "
+        "Return valid JSON only."
+    )
+
+    user_prompt = f"""
+Suggest 12 SEO keywords or keyword phrases for this blog article.
+
+Topic: {topic}
+Audience: {audience}
+Tone: {inputs['tone']}
+
+Return JSON in this shape:
+{{
+  "keywords": [
+    "keyword 1",
+    "keyword 2",
+    "keyword 3"
+  ]
+}}
+
+Rules:
+- Return exactly 12 suggestions.
+- Mix short-tail and long-tail phrases.
+- Keep them relevant to the topic and audience.
+- No numbering.
+- No markdown.
+- JSON only.
+"""
+    response = generate_text(system_prompt, user_prompt, max_tokens=700)
+    parsed = parse_json_response(response)
+    return [clean_text(item) for item in parsed.get("keywords", []) if clean_text(item)][:12]
+
+
 def run_evan_light(inputs: dict[str, Any]) -> None:
     evidence_text = build_evidence_bundle(inputs)
 
@@ -277,6 +318,43 @@ def run_evan_light(inputs: dict[str, Any]) -> None:
 
     st.session_state.evaluated_evidence = evaluated
     st.session_state.verified_evidence = verified
+
+
+def run_outline_generation() -> None:
+    inputs = current_inputs()
+    if not inputs["topic"]:
+        st.error("Please enter a topic first.")
+        return
+
+    run_evan_light(inputs)
+    inputs = current_inputs()
+
+    response = generate_text(
+        outline_system_prompt(inputs["language"]),
+        outline_user_prompt(inputs),
+        max_tokens=2200,
+    )
+    parsed = parse_json_response(response)
+    st.session_state.outline_title = clean_text(
+        parsed.get("title") or inputs["title"] or inputs["topic"]
+    )
+    st.session_state.outline = parsed.get("outline", [])
+    st.session_state.sections_content = {}
+    st.session_state.sections_workspace_ready = False
+    st.session_state.new_section_prompt = ""
+
+    keys_to_delete = [
+        key
+        for key in list(st.session_state.keys())
+        if key.startswith("content_") or key.startswith("rev_inst_")
+    ]
+    for key in keys_to_delete:
+        del st.session_state[key]
+
+    normalise_outline()
+    st.session_state.show_seo_keyword_dialog = False
+    st.success("Outline generated.")
+    st.rerun()
 
 
 def generate_new_section_from_prompt(one_liner: str) -> dict[str, Any]:
@@ -427,6 +505,59 @@ init_state()
 apply_pending_content_updates()
 normalise_outline()
 
+if st.session_state.show_seo_keyword_dialog:
+    @st.dialog("Choose recommended SEO keywords")
+    def seo_keywords_dialog() -> None:
+        st.write("Your SEO keywords box is empty. Pick any recommended keywords below, then continue.")
+
+        suggestions = st.session_state.get("seo_keyword_suggestions", [])
+        selected = st.session_state.get("selected_seo_keywords", [])
+
+        if not suggestions:
+            st.info("No SEO suggestions are available right now.")
+        else:
+            cols_per_row = 3
+            for start in range(0, len(suggestions), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for idx, keyword in enumerate(suggestions[start:start + cols_per_row]):
+                    is_selected = keyword in selected
+                    button_label = f"✅ {keyword}" if is_selected else keyword
+                    button_type = "primary" if is_selected else "secondary"
+
+                    with cols[idx]:
+                        if st.button(
+                            button_label,
+                            key=f"seo_pick_{start}_{idx}",
+                            use_container_width=True,
+                            type=button_type,
+                        ):
+                            if is_selected:
+                                st.session_state.selected_seo_keywords = [
+                                    item for item in st.session_state.selected_seo_keywords if item != keyword
+                                ]
+                            else:
+                                st.session_state.selected_seo_keywords = [
+                                    *st.session_state.selected_seo_keywords,
+                                    keyword,
+                                ]
+                            st.rerun()
+
+        action_col1, action_col2 = st.columns(2)
+
+        with action_col1:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.show_seo_keyword_dialog = False
+                st.rerun()
+
+        with action_col2:
+            if st.button("Generate outline", use_container_width=True, type="primary"):
+                selected_keywords = st.session_state.get("selected_seo_keywords", [])
+                if selected_keywords:
+                    st.session_state.keywords_text = "\n".join(selected_keywords)
+                run_outline_generation()
+
+    seo_keywords_dialog()
+
 # Top logo area
 top_left, top_right = st.columns([1, 5])
 
@@ -507,35 +638,14 @@ with right:
             inputs = current_inputs()
             if not inputs["topic"]:
                 st.error("Please enter a topic first.")
-            else:
-                run_evan_light(inputs)
-                inputs = current_inputs()
-
-                response = generate_text(
-                    outline_system_prompt(inputs["language"]),
-                    outline_user_prompt(inputs),
-                    max_tokens=2200,
-                )
-                parsed = parse_json_response(response)
-                st.session_state.outline_title = clean_text(
-                    parsed.get("title") or inputs["title"] or inputs["topic"]
-                )
-                st.session_state.outline = parsed.get("outline", [])
-                st.session_state.sections_content = {}
-                st.session_state.sections_workspace_ready = False
-                st.session_state.new_section_prompt = ""
-
-                keys_to_delete = [
-                    key
-                    for key in list(st.session_state.keys())
-                    if key.startswith("content_") or key.startswith("rev_inst_")
-                ]
-                for key in keys_to_delete:
-                    del st.session_state[key]
-
-                normalise_outline()
-                st.success("Outline generated.")
+            elif not inputs["keywords"]:
+                suggested_keywords = suggest_seo_keywords(inputs)
+                st.session_state.seo_keyword_suggestions = suggested_keywords
+                st.session_state.selected_seo_keywords = []
+                st.session_state.show_seo_keyword_dialog = True
                 st.rerun()
+            else:
+                run_outline_generation()
         except Exception as exc:
             st.error(f"Could not generate outline: {exc}")
 
