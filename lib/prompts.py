@@ -184,6 +184,7 @@ Instructions:
 - Prioritise verified evidence where available.
 - If verified evidence exists, do not build major sections around unsupported points.
 - If little or no verified evidence exists, you may rely on general knowledge, but avoid overly specific statistics or named claims unless supplied.
+- If add_hiring_section is true, include at least one dedicated section on the impact on hiring, talent strategy, recruitment, employer branding, or workforce implications where relevant to the topic.
 
 {_style_rules(inputs['language'])}
 
@@ -208,6 +209,8 @@ Research notes:
 {inputs.get('research_notes') or 'None provided'}
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
 '''.strip()
 
 
@@ -300,6 +303,8 @@ Research notes:
 {inputs.get('research_notes') or 'None provided'}
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
 
 Rules:
 - Write only the section body, not the heading.
@@ -317,6 +322,7 @@ Rules:
 - Use verified quotes verbatim where relevant.
 - Do not introduce unsupported numbers, named studies, or precise claims as fact.
 - If no verified evidence is available, write from general knowledge and keep claims broad rather than overly specific.
+- If add_hiring_section is true and this section is the hiring-related section, cover the impact on hiring, recruitment, talent strategy, employer brand, role design, or workforce planning in a practical way.
 - Avoid repetitive sentence openings.
 - Avoid robotic transitions such as "It is important to note" or "Another key point is".
 - Keep the rhythm natural and readable.
@@ -393,6 +399,7 @@ Format requirements:
 - End with exactly 5 FAQ pairs.
 - End with a final TL;DR section.
 - Use markdown formatting.
+- If add_hiring_section is true, include at least one dedicated H2 section covering the impact on hiring.
 
 Content requirements:
 - Include 2 to 3 specific examples with real numbers or real results only when supported by the provided evidence.
@@ -467,6 +474,8 @@ Research notes:
 
 Document insights:
 {_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
 
 Return only the final blog post in markdown.
 '''.strip()
