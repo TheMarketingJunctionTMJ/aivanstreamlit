@@ -87,8 +87,17 @@ def lines_to_list(value: str) -> list[str]:
 
 def current_inputs() -> dict[str, Any]:
     return {
-        "title": st.session_state.title.strip() or st.session_state.topic.strip(),
-        "topic": st.session_state.topic.strip(),
+        "title": (
+            st.session_state.title.strip()
+            or st.session_state.ai_outline_title.strip()
+            or st.session_state.outline_title.strip()
+            or st.session_state.topic.strip()
+        ),
+        "topic": (
+            st.session_state.topic.strip()
+            or st.session_state.ai_outline_title.strip()
+            or st.session_state.outline_title.strip()
+        ),
         "audience": st.session_state.audience.strip(),
         "keywords": lines_to_list(st.session_state.keywords_text),
         "facts": lines_to_list(st.session_state.facts_text),
@@ -436,9 +445,16 @@ def run_ai_outline_generation() -> None:
     st.session_state.pending_ai_outline_generation = False
 
     inputs = current_inputs()
-    if not inputs["topic"]:
+    topic_seed = clean_text(inputs["topic"] or inputs["title"] or st.session_state.ai_outline_title)
+
+    if not topic_seed:
         st.error("Please enter a topic first.")
         return
+
+    if not inputs["topic"]:
+        inputs["topic"] = topic_seed
+    if not inputs["title"]:
+        inputs["title"] = topic_seed
 
     run_evan_light(inputs)
     inputs = current_inputs()
@@ -451,7 +467,7 @@ def run_ai_outline_generation() -> None:
     parsed = parse_json_response(response)
 
     st.session_state.ai_outline_title = clean_text(
-        parsed.get("title") or inputs["title"] or inputs["topic"]
+        parsed.get("title") or inputs["title"] or inputs["topic"] or topic_seed
     )
     st.session_state.ai_outline = parsed.get("outline", [])
     st.session_state.ai_new_section_prompt = ""
@@ -489,12 +505,29 @@ def run_ai_friendly_generation() -> None:
     st.session_state.pending_ai_friendly_generation = False
 
     inputs = current_inputs()
-    if not inputs["topic"]:
-        st.error("Please enter a topic first.")
+    outline = st.session_state.get("ai_outline", []) or []
+    outline_title = clean_text(
+        st.session_state.get("ai_outline_title") or inputs["title"] or inputs["topic"] or "Article"
+    )
+
+    if not outline and not outline_title and not inputs["topic"]:
+        st.error("Please generate the AI-friendly outline first.")
         return
+
+    if not inputs["topic"] and outline_title:
+        inputs["topic"] = outline_title
+
+    if not inputs["title"] and outline_title:
+        inputs["title"] = outline_title
 
     run_evan_light(inputs)
     inputs = current_inputs()
+
+    if not inputs["topic"] and outline_title:
+        inputs["topic"] = outline_title
+
+    if not inputs["title"] and outline_title:
+        inputs["title"] = outline_title
 
     seo_keywords = [clean_text(keyword) for keyword in inputs["keywords"] if clean_text(keyword)]
     outline = st.session_state.get("ai_outline", []) or []
@@ -587,8 +620,12 @@ Rules:
 def generate_new_ai_section_from_prompt(one_liner: str) -> dict[str, Any]:
     inputs = current_inputs()
     article_title = clean_text(
-        st.session_state.ai_outline_title or inputs["title"] or inputs["topic"] or "the article"
+        st.session_state.ai_outline_title
+        or inputs["title"]
+        or inputs["topic"]
+        or "the article"
     )
+    topic_value = clean_text(inputs["topic"] or article_title)
     existing_headings = [
         clean_text(section.get("heading", ""))
         for section in st.session_state.ai_outline
@@ -603,7 +640,7 @@ def generate_new_ai_section_from_prompt(one_liner: str) -> dict[str, Any]:
 Create exactly one new AI-friendly blog section for this article.
 
 Article title: {article_title}
-Topic: {inputs['topic']}
+Topic: {topic_value}
 Audience: {inputs['audience']}
 Tone: {inputs['tone']}
 Target words for whole article: {inputs['target_words']}
@@ -992,7 +1029,7 @@ with left:
                     insights_system_prompt(st.session_state.language),
                     insights_user_prompt(
                         raw_text,
-                        st.session_state.topic or st.session_state.title or "blog topic",
+                        st.session_state.topic or st.session_state.title or st.session_state.ai_outline_title or "blog topic",
                         st.session_state.language,
                     ),
                     max_tokens=1800,
@@ -1172,7 +1209,8 @@ with right:
         if st.button("Generate AI-friendly outline", type="primary", use_container_width=True):
             try:
                 inputs = current_inputs()
-                if not inputs["topic"]:
+                topic_seed = clean_text(inputs["topic"] or inputs["title"] or st.session_state.ai_outline_title)
+                if not topic_seed:
                     st.error("Please enter a topic first.")
                 elif not inputs["keywords"]:
                     suggested_keywords = suggest_seo_keywords(inputs)
