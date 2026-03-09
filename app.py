@@ -15,6 +15,8 @@ from lib.file_processing import extract_text_from_upload
 from lib.prompts import (
     LANGUAGE_OPTIONS,
     TONE_OPTIONS,
+    ai_friendly_blog_system_prompt,
+    ai_friendly_blog_user_prompt,
     evaluate_system_prompt,
     evaluate_user_prompt,
     insights_system_prompt,
@@ -36,6 +38,7 @@ st.set_page_config(page_title="Streamlit Blog Studio", page_icon="✍️", layou
 
 def init_state() -> None:
     defaults: dict[str, Any] = {
+        "blog_mode": "Writer Version",
         "title": "",
         "topic": "",
         "audience": "",
@@ -62,6 +65,8 @@ def init_state() -> None:
         "selected_seo_keywords": [],
         "show_seo_keyword_dialog": False,
         "pending_outline_generation": False,
+        "ai_friendly_draft": "",
+        "pending_ai_friendly_generation": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -86,6 +91,7 @@ def current_inputs() -> dict[str, Any]:
         "target_words": int(st.session_state.target_words),
         "document_insights": st.session_state.document_insights,
         "verified_evidence": st.session_state.verified_evidence,
+        "blog_mode": st.session_state.blog_mode,
     }
 
 
@@ -167,7 +173,7 @@ def strip_leading_heading(content: str, heading: str) -> str:
     candidate = candidate.rstrip(":")
 
     if normalise_heading_for_compare(candidate) == normalise_heading_for_compare(heading):
-        remaining_lines = lines[first_non_empty_index + 1 :]
+        remaining_lines = lines[first_non_empty_index + 1:]
         while remaining_lines and not remaining_lines[0].strip():
             remaining_lines.pop(0)
         return clean_text("\n".join(remaining_lines))
@@ -215,6 +221,56 @@ def build_export_sections_with_appendix(
         }
     )
     return export_sections
+
+
+def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list[dict[str, str]]:
+    text = str(markdown_text or "").strip()
+    if not text:
+        return [{"heading": fallback_title or "Article", "content": ""}]
+
+    sections: list[dict[str, str]] = []
+    current_heading = fallback_title or "Article"
+    current_lines: list[str] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## "):
+            if current_lines:
+                sections.append(
+                    {
+                        "heading": clean_text(current_heading),
+                        "content": "\n".join(current_lines).strip(),
+                    }
+                )
+            current_heading = clean_text(line[3:])
+            current_lines = []
+        elif line.startswith("# "):
+            if not sections and not current_lines:
+                current_heading = clean_text(line[2:])
+            else:
+                current_lines.append(line)
+        else:
+            current_lines.append(line)
+
+    if current_lines or not sections:
+        sections.append(
+            {
+                "heading": clean_text(current_heading),
+                "content": "\n".join(current_lines).strip(),
+            }
+        )
+
+    cleaned_sections = []
+    for section in sections:
+        heading = clean_text(section.get("heading", "")) or "Section"
+        content = clean_text(section.get("content", ""))
+        if content:
+            cleaned_sections.append({"heading": heading, "content": content})
+
+    if not cleaned_sections:
+        cleaned_sections.append({"heading": fallback_title or "Article", "content": text})
+
+    return cleaned_sections
 
 
 def make_section_id() -> str:
@@ -350,6 +406,7 @@ def run_outline_generation() -> None:
     st.session_state.sections_content = {}
     st.session_state.sections_workspace_ready = False
     st.session_state.new_section_prompt = ""
+    st.session_state.ai_friendly_draft = ""
 
     keys_to_delete = [
         key
@@ -362,6 +419,31 @@ def run_outline_generation() -> None:
     normalise_outline()
     st.session_state.show_seo_keyword_dialog = False
     st.success("Outline generated.")
+    st.rerun()
+
+
+def run_ai_friendly_generation() -> None:
+    st.session_state.pending_ai_friendly_generation = False
+
+    inputs = current_inputs()
+    if not inputs["topic"]:
+        st.error("Please enter a topic first.")
+        return
+
+    run_evan_light(inputs)
+    inputs = current_inputs()
+
+    response = generate_text(
+        ai_friendly_blog_system_prompt(inputs["language"]),
+        ai_friendly_blog_user_prompt(inputs),
+        max_tokens=3800,
+    )
+
+    st.session_state.ai_friendly_draft = clean_text(response)
+    st.session_state.outline = []
+    st.session_state.sections_content = {}
+    st.session_state.sections_workspace_ready = False
+    st.success("AI-friendly blog generated.")
     st.rerun()
 
 
@@ -516,6 +598,12 @@ def apply_pending_content_updates() -> None:
             st.session_state["revision_success_message"] = "Section revised."
 
 
+def switch_blog_mode(mode: str) -> None:
+    if st.session_state.blog_mode == mode:
+        return
+    st.session_state.blog_mode = mode
+
+
 init_state()
 apply_pending_content_updates()
 normalise_outline()
@@ -523,6 +611,10 @@ normalise_outline()
 if st.session_state.get("pending_outline_generation"):
     with st.spinner("Generating outline..."):
         run_outline_generation()
+
+if st.session_state.get("pending_ai_friendly_generation"):
+    with st.spinner("Generating AI-friendly blog..."):
+        run_ai_friendly_generation()
 
 if st.session_state.show_seo_keyword_dialog:
     @st.dialog("Choose recommended SEO keywords")
@@ -569,7 +661,7 @@ if st.session_state.show_seo_keyword_dialog:
                 st.rerun()
 
         with action_col2:
-            if st.button("Generate outline", use_container_width=True, type="primary"):
+            if st.button("Continue", use_container_width=True, type="primary"):
                 selected_keywords = st.session_state.get("selected_seo_keywords", [])
 
                 if not selected_keywords:
@@ -577,10 +669,44 @@ if st.session_state.show_seo_keyword_dialog:
                 else:
                     st.session_state.keywords_text = "\n".join(selected_keywords)
                     st.session_state.show_seo_keyword_dialog = False
-                    st.session_state.pending_outline_generation = True
+                    if st.session_state.blog_mode == "Writer Version":
+                        st.session_state.pending_outline_generation = True
+                    else:
+                        st.session_state.pending_ai_friendly_generation = True
                     st.rerun()
 
     seo_keywords_dialog()
+
+st.markdown(
+    """
+    <style>
+    .mode-card {
+        border: 1px solid rgba(49, 51, 63, 0.2);
+        border-radius: 18px;
+        padding: 18px 18px 14px 18px;
+        background: #ffffff;
+        min-height: 150px;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+    }
+    .mode-card.selected {
+        border: 2px solid #4f46e5;
+        box-shadow: 0 4px 18px rgba(79,70,229,0.10);
+        background: #f7f7ff;
+    }
+    .mode-title {
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+    .mode-copy {
+        color: #4b5563;
+        font-size: 0.94rem;
+        line-height: 1.45;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # Top logo area
 top_left, top_right = st.columns([1, 5])
@@ -601,10 +727,59 @@ with top_right:
         st.image(st.session_state.logo_bytes, width=180)
 
 st.title("✍️ Streamlit Blog Studio")
-st.caption("Outline-first AI blog writing for internal content teams")
+st.caption("Create editorial blogs or AI-friendly, answer-style blog posts from one workspace")
 
 if not os.getenv("ANTHROPIC_API_KEY"):
     st.error("ANTHROPIC_API_KEY is missing. Add it in your environment before using the app.")
+
+st.subheader("Choose blog mode")
+mode_col1, mode_col2 = st.columns(2)
+
+with mode_col1:
+    selected_class = "mode-card selected" if st.session_state.blog_mode == "Writer Version" else "mode-card"
+    st.markdown(
+        f"""
+        <div class="{selected_class}">
+            <div class="mode-title">Writer Version</div>
+            <div class="mode-copy">
+                Editorial, outline-first workflow for polished human-style content.<br><br>
+                Best for: structured planning, section-by-section writing, revision control.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Use Writer Version",
+        key="mode_writer",
+        use_container_width=True,
+        type="primary" if st.session_state.blog_mode == "Writer Version" else "secondary",
+    ):
+        switch_blog_mode("Writer Version")
+        st.rerun()
+
+with mode_col2:
+    selected_class = "mode-card selected" if st.session_state.blog_mode == "AI Friendly" else "mode-card"
+    st.markdown(
+        f"""
+        <div class="{selected_class}">
+            <div class="mode-title">AI Friendly</div>
+            <div class="mode-copy">
+                Direct full-draft generation using question-led, skimmable, answer-engine-friendly structure.<br><br>
+                Best for: quick production, search visibility, FAQ-rich blog layouts.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Use AI Friendly",
+        key="mode_ai",
+        use_container_width=True,
+        type="primary" if st.session_state.blog_mode == "AI Friendly" else "secondary",
+    ):
+        switch_blog_mode("AI Friendly")
+        st.rerun()
 
 left, right = st.columns([1.1, 1])
 
@@ -656,160 +831,196 @@ with left:
             st.write(f"- {item}")
 
 with right:
-    st.subheader("4. Outline")
-    if st.button("Generate outline", type="primary"):
-        try:
-            inputs = current_inputs()
-            if not inputs["topic"]:
-                st.error("Please enter a topic first.")
-            elif not inputs["keywords"]:
-                suggested_keywords = suggest_seo_keywords(inputs)
-                st.session_state.seo_keyword_suggestions = suggested_keywords
-                st.session_state.selected_seo_keywords = []
-                st.session_state.show_seo_keyword_dialog = True
-                st.rerun()
-            else:
-                run_outline_generation()
-        except Exception as exc:
-            st.error(f"Could not generate outline: {exc}")
-
-    verified = st.session_state.get("verified_evidence", {}) or {}
-    if verified.get("verified_points") or verified.get("verified_quotes"):
-        with st.expander("Verified evidence used for planning", expanded=False):
-            if verified.get("verified_points"):
-                st.markdown("**Verified points**")
-                for item in verified.get("verified_points", [])[:10]:
-                    st.write(f"- {item}")
-            if verified.get("verified_quotes"):
-                st.markdown("**Verified quotes**")
-                for item in verified.get("verified_quotes", [])[:6]:
-                    st.write(f"- {item}")
-            if verified.get("unsupported_points"):
-                st.markdown("**Unsupported or weak points**")
-                for item in verified.get("unsupported_points", [])[:6]:
-                    st.write(f"- {item}")
-
-    if st.session_state.outline:
-        st.text_input("Final article title", key="outline_title")
-        st.caption("You can edit any heading or objective before generating sections.")
-
-        with st.form("add_section_form", clear_on_submit=True):
-            add_prompt_col, add_button_col = st.columns([4, 1.2])
-            with add_prompt_col:
-                new_section_prompt = st.text_input(
-                    "Add section with a one-line prompt",
-                    key="new_section_prompt",
-                    placeholder="e.g. Add a section on implementation mistakes teams should avoid",
-                )
-            with add_button_col:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
-
-            if add_section_submitted:
-                one_liner = clean_text(new_section_prompt)
-                if not one_liner:
-                    st.error("Enter a one-line prompt for the new section.")
+    if st.session_state.blog_mode == "Writer Version":
+        st.subheader("4. Outline")
+        if st.button("Generate outline", type="primary"):
+            try:
+                inputs = current_inputs()
+                if not inputs["topic"]:
+                    st.error("Please enter a topic first.")
+                elif not inputs["keywords"]:
+                    suggested_keywords = suggest_seo_keywords(inputs)
+                    st.session_state.seo_keyword_suggestions = suggested_keywords
+                    st.session_state.selected_seo_keywords = []
+                    st.session_state.show_seo_keyword_dialog = True
+                    st.rerun()
                 else:
-                    try:
-                        new_section = generate_new_section_from_prompt(one_liner)
-                    except Exception:
-                        new_section = build_manual_section(one_liner)
+                    run_outline_generation()
+            except Exception as exc:
+                st.error(f"Could not generate outline: {exc}")
 
-                    st.session_state.outline.append(new_section)
-                    normalise_outline()
-                    st.session_state.sections_workspace_ready = True
-                    st.success("Section added.")
-                    st.rerun()
+        verified = st.session_state.get("verified_evidence", {}) or {}
+        if verified.get("verified_points") or verified.get("verified_quotes"):
+            with st.expander("Verified evidence used for planning", expanded=False):
+                if verified.get("verified_points"):
+                    st.markdown("**Verified points**")
+                    for item in verified.get("verified_points", [])[:10]:
+                        st.write(f"- {item}")
+                if verified.get("verified_quotes"):
+                    st.markdown("**Verified quotes**")
+                    for item in verified.get("verified_quotes", [])[:6]:
+                        st.write(f"- {item}")
+                if verified.get("unsupported_points"):
+                    st.markdown("**Unsupported or weak points**")
+                    for item in verified.get("unsupported_points", [])[:6]:
+                        st.write(f"- {item}")
 
-        updated_outline: list[dict[str, Any]] = []
-        delete_section_id: str | None = None
-        for idx, section in enumerate(st.session_state.outline):
-            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
-                heading = st.text_input(
-                    f"Heading {idx + 1}",
-                    value=clean_text(section.get("heading", "")),
-                    key=f"heading_{idx}",
-                )
+        if st.session_state.outline:
+            st.text_input("Final article title", key="outline_title")
+            st.caption("You can edit any heading or objective before generating sections.")
 
-                objective_value = clean_text(section.get("objective", ""))
-                objective_height = calc_text_area_height(
-                    objective_value,
-                    min_height=140,
-                    line_px=28,
-                    extra_lines=3,
-                )
-                objective = st.text_area(
-                    f"Objective {idx + 1}",
-                    value=objective_value,
-                    key=f"objective_{idx}",
-                    height=objective_height,
-                )
-
-                key_points_value = to_bullet_lines(section.get("keyPoints", []))
-                key_points_height = calc_text_area_height(
-                    key_points_value,
-                    min_height=170,
-                    line_px=30,
-                    extra_lines=3,
-                )
-                key_points_text = st.text_area(
-                    f"Key points {idx + 1}",
-                    value=key_points_value,
-                    key=f"keypoints_{idx}",
-                    height=key_points_height,
-                )
-
-                section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
-                with section_controls_col1:
-                    suggested_words = st.number_input(
-                        f"Suggested words {idx + 1}",
-                        min_value=80,
-                        max_value=800,
-                        value=int(section.get("suggestedWords", 180)),
-                        step=20,
-                        key=f"words_{idx}",
+            with st.form("add_section_form", clear_on_submit=True):
+                add_prompt_col, add_button_col = st.columns([4, 1.2])
+                with add_prompt_col:
+                    new_section_prompt = st.text_input(
+                        "Add section with a one-line prompt",
+                        key="new_section_prompt",
+                        placeholder="e.g. Add a section on implementation mistakes teams should avoid",
                     )
-                with section_controls_col2:
+                with add_button_col:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    if st.button("Delete section", key=f"delete_outline_{section['id']}", use_container_width=True):
-                        delete_section_id = str(section["id"])
+                    add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
 
-                updated_outline.append(
-                    {
-                        "id": section.get("id", f"s{idx+1}"),
-                        "heading": clean_text(heading),
-                        "objective": clean_text(objective),
-                        "keyPoints": from_bullet_lines(key_points_text),
-                        "suggestedWords": int(suggested_words),
-                    }
-                )
-
-        st.session_state.outline = updated_outline
-        normalise_outline()
-
-        if delete_section_id:
-            delete_section(delete_section_id)
-            st.success("Section deleted.")
-            st.rerun()
-
-        st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
-        prepare_col1, prepare_col2 = st.columns([1.5, 3])
-        with prepare_col1:
-            if st.button("Generate sections", use_container_width=True):
-                try:
-                    st.session_state.sections_workspace_ready = True
-                    inputs = current_inputs()
-                    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
-                    generated_any = generate_missing_sections(inputs, title)
-                    if generated_any:
-                        st.session_state["generation_success_message"] = "Generated all sections."
+                if add_section_submitted:
+                    one_liner = clean_text(new_section_prompt)
+                    if not one_liner:
+                        st.error("Enter a one-line prompt for the new section.")
                     else:
-                        st.session_state["generation_success_message"] = "All sections were already generated."
+                        try:
+                            new_section = generate_new_section_from_prompt(one_liner)
+                        except Exception:
+                            new_section = build_manual_section(one_liner)
+
+                        st.session_state.outline.append(new_section)
+                        normalise_outline()
+                        st.session_state.sections_workspace_ready = True
+                        st.success("Section added.")
+                        st.rerun()
+
+            updated_outline: list[dict[str, Any]] = []
+            delete_section_id: str | None = None
+            for idx, section in enumerate(st.session_state.outline):
+                with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
+                    heading = st.text_input(
+                        f"Heading {idx + 1}",
+                        value=clean_text(section.get("heading", "")),
+                        key=f"heading_{idx}",
+                    )
+
+                    objective_value = clean_text(section.get("objective", ""))
+                    objective_height = calc_text_area_height(
+                        objective_value,
+                        min_height=140,
+                        line_px=28,
+                        extra_lines=3,
+                    )
+                    objective = st.text_area(
+                        f"Objective {idx + 1}",
+                        value=objective_value,
+                        key=f"objective_{idx}",
+                        height=objective_height,
+                    )
+
+                    key_points_value = to_bullet_lines(section.get("keyPoints", []))
+                    key_points_height = calc_text_area_height(
+                        key_points_value,
+                        min_height=170,
+                        line_px=30,
+                        extra_lines=3,
+                    )
+                    key_points_text = st.text_area(
+                        f"Key points {idx + 1}",
+                        value=key_points_value,
+                        key=f"keypoints_{idx}",
+                        height=key_points_height,
+                    )
+
+                    section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
+                    with section_controls_col1:
+                        suggested_words = st.number_input(
+                            f"Suggested words {idx + 1}",
+                            min_value=80,
+                            max_value=800,
+                            value=int(section.get("suggestedWords", 180)),
+                            step=20,
+                            key=f"words_{idx}",
+                        )
+                    with section_controls_col2:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("Delete section", key=f"delete_outline_{section['id']}", use_container_width=True):
+                            delete_section_id = str(section["id"])
+
+                    updated_outline.append(
+                        {
+                            "id": section.get("id", f"s{idx+1}"),
+                            "heading": clean_text(heading),
+                            "objective": clean_text(objective),
+                            "keyPoints": from_bullet_lines(key_points_text),
+                            "suggestedWords": int(suggested_words),
+                        }
+                    )
+
+            st.session_state.outline = updated_outline
+            normalise_outline()
+
+            if delete_section_id:
+                delete_section(delete_section_id)
+                st.success("Section deleted.")
+                st.rerun()
+
+            st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
+            prepare_col1, prepare_col2 = st.columns([1.5, 3])
+            with prepare_col1:
+                if st.button("Generate sections", use_container_width=True):
+                    try:
+                        st.session_state.sections_workspace_ready = True
+                        inputs = current_inputs()
+                        title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+                        generated_any = generate_missing_sections(inputs, title)
+                        if generated_any:
+                            st.session_state["generation_success_message"] = "Generated all sections."
+                        else:
+                            st.session_state["generation_success_message"] = "All sections were already generated."
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Failed while generating sections: {exc}")
+            with prepare_col2:
+                st.caption("This generates every missing section below in Part 5. Use Revise later for changes.")
+    else:
+        st.subheader("4. AI-Friendly draft")
+        st.caption("This mode generates a complete blog directly using question-led headings, quick answers, FAQs, and a TL;DR.")
+
+        if st.button("Generate AI-friendly blog", type="primary", use_container_width=True):
+            try:
+                inputs = current_inputs()
+                if not inputs["topic"]:
+                    st.error("Please enter a topic first.")
+                elif not inputs["keywords"]:
+                    suggested_keywords = suggest_seo_keywords(inputs)
+                    st.session_state.seo_keyword_suggestions = suggested_keywords
+                    st.session_state.selected_seo_keywords = []
+                    st.session_state.show_seo_keyword_dialog = True
                     st.rerun()
-                except Exception as exc:
-                    st.error(f"Failed while generating sections: {exc}")
-        with prepare_col2:
-            st.caption("This generates every missing section below in Part 5. Use Revise later for changes.")
+                else:
+                    run_ai_friendly_generation()
+            except Exception as exc:
+                st.error(f"Could not generate AI-friendly blog: {exc}")
+
+        verified = st.session_state.get("verified_evidence", {}) or {}
+        if verified.get("verified_points") or verified.get("verified_quotes"):
+            with st.expander("Verified evidence available to the AI-friendly draft", expanded=False):
+                if verified.get("verified_points"):
+                    st.markdown("**Verified points**")
+                    for item in verified.get("verified_points", [])[:10]:
+                        st.write(f"- {item}")
+                if verified.get("verified_quotes"):
+                    st.markdown("**Verified quotes**")
+                    for item in verified.get("verified_quotes", [])[:6]:
+                        st.write(f"- {item}")
+                if verified.get("unsupported_points"):
+                    st.markdown("**Unsupported or weak points**")
+                    for item in verified.get("unsupported_points", [])[:6]:
+                        st.write(f"- {item}")
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -818,184 +1029,260 @@ if st.session_state.get("revision_success_message"):
     st.success(st.session_state.pop("revision_success_message"))
 
 st.divider()
-st.subheader("5. Generate article sections")
 
-if st.session_state.outline and st.session_state.sections_workspace_ready:
-    inputs = current_inputs()
-    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+if st.session_state.blog_mode == "Writer Version":
+    st.subheader("5. Generate article sections")
 
-    top_actions_col1, top_actions_col2 = st.columns([1.5, 4])
-    with top_actions_col1:
-        if st.button("Generate all missing sections", use_container_width=True):
-            try:
-                generated_any = generate_missing_sections(inputs, title)
-                if generated_any:
-                    st.success("Generated all missing sections.")
-                else:
-                    st.info("No missing sections to generate.")
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Failed while generating missing sections: {exc}")
-    with top_actions_col2:
-        st.caption("Each section now opens as an expandable writing panel with its own generate, revise, and delete controls.")
+    if st.session_state.outline and st.session_state.sections_workspace_ready:
+        inputs = current_inputs()
+        title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
 
-    delete_section_id_from_workspace: str | None = None
-    for idx, section in enumerate(st.session_state.outline):
-        key = section["id"]
-        content_key = f"content_{key}"
-        revision_key = f"rev_inst_{key}"
+        top_actions_col1, top_actions_col2 = st.columns([1.5, 4])
+        with top_actions_col1:
+            if st.button("Generate all missing sections", use_container_width=True):
+                try:
+                    generated_any = generate_missing_sections(inputs, title)
+                    if generated_any:
+                        st.success("Generated all missing sections.")
+                    else:
+                        st.info("No missing sections to generate.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed while generating missing sections: {exc}")
+        with top_actions_col2:
+            st.caption("Each section now opens as an expandable writing panel with its own generate, revise, and delete controls.")
 
-        if content_key not in st.session_state:
-            st.session_state[content_key] = st.session_state.sections_content.get(key, "")
+        delete_section_id_from_workspace: str | None = None
+        for idx, section in enumerate(st.session_state.outline):
+            key = section["id"]
+            content_key = f"content_{key}"
+            revision_key = f"rev_inst_{key}"
 
-        heading_label = clean_text(section.get("heading", "Untitled section")) or "Untitled section"
-        with st.expander(f"Section {idx + 1}: {heading_label}", expanded=(idx == 0)):
-            st.caption(section.get("objective", ""))
+            if content_key not in st.session_state:
+                st.session_state[content_key] = st.session_state.sections_content.get(key, "")
 
-            if section.get("keyPoints"):
-                st.markdown("**Key points**")
-                st.markdown("\n".join(f"- {clean_text(point)}" for point in section["keyPoints"]))
+            heading_label = clean_text(section.get("heading", "Untitled section")) or "Untitled section"
+            with st.expander(f"Section {idx + 1}: {heading_label}", expanded=(idx == 0)):
+                st.caption(section.get("objective", ""))
 
-            meta_col1, meta_col2, meta_col3 = st.columns([1, 1.2, 1])
-            with meta_col1:
-                st.caption(f"Suggested words: {int(section.get('suggestedWords', 180))}")
-            with meta_col2:
-                if st.button("Generate this section", key=f"generate_{key}", use_container_width=True):
+                if section.get("keyPoints"):
+                    st.markdown("**Key points**")
+                    st.markdown("\n".join(f"- {clean_text(point)}" for point in section["keyPoints"]))
+
+                meta_col1, meta_col2, meta_col3 = st.columns([1, 1.2, 1])
+                with meta_col1:
+                    st.caption(f"Suggested words: {int(section.get('suggestedWords', 180))}")
+                with meta_col2:
+                    if st.button("Generate this section", key=f"generate_{key}", use_container_width=True):
+                        try:
+                            tighter_section = dict(section)
+                            tighter_section["objective"] = (
+                                f"{clean_text(section.get('objective', ''))} "
+                                f"Write approximately {int(section['suggestedWords'])} words. "
+                                f"Do not exceed the target by more than 120 words."
+                            ).strip()
+
+                            section_text = clean_text(
+                                generate_text(
+                                    section_system_prompt(inputs["language"]),
+                                    section_user_prompt(inputs, tighter_section, title, st.session_state.outline),
+                                    max_tokens=section_max_tokens(int(section["suggestedWords"])),
+                                )
+                            )
+                            st.session_state["pending_generation_update"] = {
+                                "section_id": key,
+                                "content": section_text,
+                            }
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Generation failed: {exc}")
+                with meta_col3:
+                    if st.button("Delete this section", key=f"delete_workspace_{key}", use_container_width=True):
+                        delete_section_id_from_workspace = str(key)
+
+                current_content = st.session_state.get(content_key, "")
+                content_height = calc_text_area_height(
+                    current_content,
+                    min_height=420,
+                    line_px=28,
+                    extra_lines=10,
+                )
+
+                edited = st.text_area(
+                    f"Generated content for {heading_label}",
+                    key=content_key,
+                    height=content_height,
+                )
+                st.session_state.sections_content[key] = sanitise_section_content(edited, heading_label)
+
+                revision_instruction = st.text_input(
+                    f"Revision instruction for {heading_label}",
+                    key=revision_key,
+                    placeholder="e.g. Make this more conversational and add one stronger example",
+                )
+
+                if st.button("Revise this section", key=f"revise_{key}"):
                     try:
-                        tighter_section = dict(section)
-                        tighter_section["objective"] = (
-                            f"{clean_text(section.get('objective', ''))} "
-                            f"Write approximately {int(section['suggestedWords'])} words. "
-                            f"Do not exceed the target by more than 120 words."
-                        ).strip()
+                        source_text = clean_text(st.session_state.sections_content.get(key, ""))
 
-                        section_text = clean_text(
+                        revised = clean_text(
                             generate_text(
-                                section_system_prompt(inputs["language"]),
-                                section_user_prompt(inputs, tighter_section, title, st.session_state.outline),
-                                max_tokens=section_max_tokens(int(section["suggestedWords"])),
+                                revision_system_prompt(inputs["language"]),
+                                revision_user_prompt(
+                                    section["heading"],
+                                    source_text,
+                                    revision_instruction,
+                                    inputs["language"],
+                                ),
+                                max_tokens=2200,
                             )
                         )
-                        st.session_state["pending_generation_update"] = {
+
+                        st.session_state["pending_revision_update"] = {
                             "section_id": key,
-                            "content": section_text,
+                            "content": revised,
                         }
                         st.rerun()
                     except Exception as exc:
-                        st.error(f"Generation failed: {exc}")
-            with meta_col3:
-                if st.button("Delete this section", key=f"delete_workspace_{key}", use_container_width=True):
-                    delete_section_id_from_workspace = str(key)
+                        st.error(f"Revision failed: {exc}")
 
-            current_content = st.session_state.get(content_key, "")
-            content_height = calc_text_area_height(
-                current_content,
-                min_height=420,
-                line_px=28,
-                extra_lines=10,
-            )
+        if delete_section_id_from_workspace:
+            delete_section(delete_section_id_from_workspace)
+            st.success("Section deleted.")
+            st.rerun()
 
-            edited = st.text_area(
-                f"Generated content for {heading_label}",
-                key=content_key,
-                height=content_height,
-            )
-            st.session_state.sections_content[key] = sanitise_section_content(edited, heading_label)
-
-            revision_instruction = st.text_input(
-                f"Revision instruction for {heading_label}",
-                key=revision_key,
-                placeholder="e.g. Make this more conversational and add one stronger example",
-            )
-
-            if st.button("Revise this section", key=f"revise_{key}"):
-                try:
-                    source_text = clean_text(st.session_state.sections_content.get(key, ""))
-
-                    revised = clean_text(
-                        generate_text(
-                            revision_system_prompt(inputs["language"]),
-                            revision_user_prompt(
-                                section["heading"],
-                                source_text,
-                                revision_instruction,
-                                inputs["language"],
-                            ),
-                            max_tokens=2200,
-                        )
-                    )
-
-                    st.session_state["pending_revision_update"] = {
-                        "section_id": key,
-                        "content": revised,
-                    }
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Revision failed: {exc}")
-
-    if delete_section_id_from_workspace:
-        delete_section(delete_section_id_from_workspace)
-        st.success("Section deleted.")
-        st.rerun()
+    else:
+        if st.session_state.outline:
+            st.info("Review the outline, then click 'Generate sections' above to open the section editors here.")
+        else:
+            st.info("Generate an outline first to create the section editors.")
 
 else:
-    if st.session_state.outline:
-        st.info("Review the outline, then click 'Generate sections' above to open the section editors here.")
+    st.subheader("5. AI-Friendly full draft")
+
+    if st.session_state.ai_friendly_draft:
+        draft_height = calc_text_area_height(
+            st.session_state.ai_friendly_draft,
+            min_height=600,
+            line_px=26,
+            extra_lines=10,
+        )
+        st.text_area(
+            "Generated AI-friendly blog",
+            key="ai_friendly_draft",
+            height=draft_height,
+        )
+
+        ai_action_col1, ai_action_col2 = st.columns([1.2, 3.8])
+        with ai_action_col1:
+            if st.button("Regenerate AI-friendly blog", use_container_width=True):
+                try:
+                    run_ai_friendly_generation()
+                except Exception as exc:
+                    st.error(f"Regeneration failed: {exc}")
+        with ai_action_col2:
+            st.caption("You can edit the draft directly in the text area above before exporting.")
     else:
-        st.info("Generate an outline first to create the section editors.")
+        st.info("Generate the AI-friendly blog above to create a full draft here.")
 
 st.subheader("6. Export")
-if st.session_state.outline:
-    inputs = current_inputs()
-    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
 
-    ordered_sections = [
-        {
-            "heading": section["heading"],
-            "content": sanitise_section_content(
-                st.session_state.sections_content.get(section["id"], ""),
-                section["heading"],
-            ),
-        }
-        for section in st.session_state.outline
-    ]
+if st.session_state.blog_mode == "Writer Version":
+    if st.session_state.outline:
+        inputs = current_inputs()
+        title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
 
-    export_sections = build_export_sections_with_appendix(
-        ordered_sections,
-        inputs["keywords"],
-    )
+        ordered_sections = [
+            {
+                "heading": section["heading"],
+                "content": sanitise_section_content(
+                    st.session_state.sections_content.get(section["id"], ""),
+                    section["heading"],
+                ),
+            }
+            for section in st.session_state.outline
+        ]
 
-    combined_markdown = "\n\n".join(
-        f"## {item['heading']}\n\n{item['content']}"
-        for item in export_sections
-        if item["content"].strip()
-    )
-
-    preview_height = calc_text_area_height(
-        combined_markdown,
-        min_height=500,
-        line_px=26,
-        extra_lines=8,
-    )
-
-    st.text_area("Combined article preview", value=combined_markdown, height=preview_height)
-
-    export_col1, export_col2 = st.columns(2)
-
-    with export_col1:
-        docx_bytes = export_blog_docx(title or "blog-article", export_sections)
-        st.download_button(
-            "Download DOCX",
-            data=docx_bytes,
-            file_name="blog-article.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        export_sections = build_export_sections_with_appendix(
+            ordered_sections,
+            inputs["keywords"],
         )
 
-    with export_col2:
-        pdf_bytes = export_blog_pdf(title or "blog-article", export_sections)
-        st.download_button(
-            "Download PDF",
-            data=pdf_bytes,
-            file_name="blog-article.pdf",
-            mime="application/pdf",
+        combined_markdown = "\n\n".join(
+            f"## {item['heading']}\n\n{item['content']}"
+            for item in export_sections
+            if item["content"].strip()
         )
+
+        preview_height = calc_text_area_height(
+            combined_markdown,
+            min_height=500,
+            line_px=26,
+            extra_lines=8,
+        )
+
+        st.text_area("Combined article preview", value=combined_markdown, height=preview_height)
+
+        export_col1, export_col2 = st.columns(2)
+
+        with export_col1:
+            docx_bytes = export_blog_docx(title or "blog-article", export_sections)
+            st.download_button(
+                "Download DOCX",
+                data=docx_bytes,
+                file_name="blog-article.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+
+        with export_col2:
+            pdf_bytes = export_blog_pdf(title or "blog-article", export_sections)
+            st.download_button(
+                "Download PDF",
+                data=pdf_bytes,
+                file_name="blog-article.pdf",
+                mime="application/pdf",
+            )
+    else:
+        st.info("Generate content first to enable export.")
+else:
+    if st.session_state.ai_friendly_draft.strip():
+        inputs = current_inputs()
+        export_title = clean_text(inputs["title"] or inputs["topic"] or "AI-friendly blog")
+        export_sections = markdown_to_export_sections(st.session_state.ai_friendly_draft, export_title)
+        export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
+
+        preview_markdown = "\n\n".join(
+            f"## {item['heading']}\n\n{item['content']}"
+            for item in export_sections
+            if item["content"].strip()
+        )
+
+        preview_height = calc_text_area_height(
+            preview_markdown,
+            min_height=500,
+            line_px=26,
+            extra_lines=8,
+        )
+        st.text_area("Combined article preview", value=preview_markdown, height=preview_height)
+
+        export_col1, export_col2 = st.columns(2)
+
+        with export_col1:
+            docx_bytes = export_blog_docx(export_title or "blog-article", export_sections)
+            st.download_button(
+                "Download DOCX",
+                data=docx_bytes,
+                file_name="blog-article.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+
+        with export_col2:
+            pdf_bytes = export_blog_pdf(export_title or "blog-article", export_sections)
+            st.download_button(
+                "Download PDF",
+                data=pdf_bytes,
+                file_name="blog-article.pdf",
+                mime="application/pdf",
+            )
+    else:
+        st.info("Generate the AI-friendly draft first to enable export.")
