@@ -363,6 +363,81 @@ Section content:
 '''.strip()
 
 
+def ai_outline_system_prompt(language: Optional[str] = None) -> str:
+    chosen_language = _language_label(language)
+    return (
+        "You are an expert content strategist for AI-friendly, search-friendly blogs. "
+        "Create editable question-led article plans, not full articles. "
+        "Return only valid JSON. "
+        f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
+    )
+
+
+def ai_outline_user_prompt(inputs: dict) -> str:
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
+
+    return f'''
+Create an AI-friendly blog outline in valid JSON.
+
+Required JSON shape:
+{{
+  "title": "string",
+  "outline": [
+    {{
+      "id": "aq1",
+      "question": "string",
+      "keyTakeaway": "string",
+      "objective": "string",
+      "suggestedWords": 180
+    }}
+  ]
+}}
+
+Instructions:
+- Create 5 to 7 question-led sections.
+- Each question must be specific, natural, and useful to a searcher.
+- Each keyTakeaway must be a single concise sentence.
+- Each objective must explain what that section should cover in practical terms.
+- The opening question should act as the introduction.
+- Include at least one question-led how-to section.
+- Include one FAQ section objective near the end.
+- Include one TL;DR or wrap-up section objective at the end.
+- Suggested words across all sections should roughly match the target word count.
+- Prioritise verified evidence where available.
+- If verified evidence exists, do not build major sections around unsupported points.
+- If add_hiring_section is true, include at least one dedicated question on hiring, recruitment, talent strategy, employer branding, or workforce implications where relevant.
+
+{_style_rules(inputs['language'])}
+
+Topic: {inputs['topic']}
+Working title: {inputs['title']}
+Audience: {inputs['audience']}
+Tone: {inputs['tone']}
+Target words: {inputs['target_words']}
+Verified points:
+{_bullet_lines(verified_points)}
+Verified quotes:
+{_bullet_lines(verified_quotes)}
+Unsupported or weak points to avoid treating as established fact:
+{_bullet_lines(unsupported_points)}
+SEO keywords:
+{_bullet_lines(inputs['keywords'])}
+Facts:
+{_bullet_lines(inputs['facts'])}
+Quotes:
+{_bullet_lines(inputs['quotes'])}
+Research notes:
+{inputs.get('research_notes') or 'None provided'}
+Document insights:
+{_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
+'''.strip()
+
+
 def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -373,7 +448,7 @@ def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     )
 
 
-def ai_friendly_blog_user_prompt(inputs: dict) -> str:
+def ai_friendly_blog_user_prompt(inputs: dict, outline_title: str = "", outline_text: str = "") -> str:
     verified = inputs.get("verified_evidence") or {}
     verified_points = verified.get("verified_points", [])
     verified_quotes = verified.get("verified_quotes", [])
@@ -429,6 +504,13 @@ Language and style rules:
 SEO and metadata:
 - Naturally incorporate the SEO keywords where relevant.
 - Keep the article useful first, optimised second.
+
+Outline to follow closely:
+Title to use if suitable:
+{outline_title or inputs["title"] or inputs["topic"]}
+
+Editable AI-friendly outline:
+{outline_text or "- No outline provided"}
 
 Important evidence rules:
 - Only use verified quotes verbatim.
