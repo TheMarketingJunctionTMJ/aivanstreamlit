@@ -355,3 +355,118 @@ Rules:
 Section content:
 {section_content}
 '''.strip()
+
+
+def ai_friendly_blog_system_prompt(language: str | None = None) -> str:
+    chosen_language = _language_label(language)
+    return (
+        "You are an expert blog writer specialising in AI-friendly, search-friendly, answer-engine-friendly content. "
+        "Write complete blog posts that are easy to scan, question-led, useful, and grounded in provided evidence. "
+        "The output must be publication-ready markdown. "
+        f"Use {chosen_language}. Do not use em dashes or en dashes anywhere."
+    )
+
+
+def ai_friendly_blog_user_prompt(inputs: dict) -> str:
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
+
+    word_count = int(inputs["target_words"])
+    topic = inputs["topic"] or inputs["title"] or "the topic"
+    audience = inputs["audience"] or "a general professional audience"
+
+    return f'''
+Write a {word_count}-word blog post about "{topic}" for {audience}.
+
+Make it AI-friendly using this structure.
+
+Format requirements:
+- Use a strong H1 title at the top.
+- Include a short introduction after the title.
+- Use question headings as H2s, such as "What is X?" or "How do I do Y?"
+- Answer each question immediately with 1 to 2 clear sentences before expanding further.
+- Start major sections with **Key takeaway:** followed by one concise sentence.
+- Include at least one numbered step-by-step process.
+- Include at least one practical "how-to" section with clear steps.
+- End with exactly 5 FAQ pairs.
+- End with a final TL;DR section.
+- Use markdown formatting.
+
+Content requirements:
+- Include 2 to 3 specific examples with real numbers or real results only when supported by the provided evidence.
+- Do not make anything up.
+- If exact numbers are not supported by the provided material, do not invent them and do not pretend they exist.
+- Include actionable tips readers can use immediately.
+- Use the provided facts, quotes, research notes, and document insights where relevant.
+- Use verified evidence first.
+- Do not present unsupported points as fact.
+- Keep examples grounded and faithful to the material supplied.
+
+Writing style:
+- Conversational and easy to scan.
+- No jargon unless it is explained simply.
+- Short paragraphs, ideally 2 to 3 sentences maximum.
+- Use bullet points where helpful.
+- Natural and human, not robotic.
+- No generic filler openings.
+- No exaggerated claims.
+
+Language and style rules:
+- Write in {inputs['language']}.
+- Do not use em dashes (—).
+- Do not use en dashes (–).
+- Use commas, full stops, or colons instead.
+
+SEO and metadata:
+- Naturally incorporate the SEO keywords where relevant.
+- Keep the article useful first, optimised second.
+
+Important evidence rules:
+- Only use verified quotes verbatim.
+- Do not introduce unsupported statistics, named reports, or precise claims as established fact.
+- If evidence is limited, keep claims broad, practical, and honest.
+
+Inputs:
+Working title:
+{inputs['title'] or 'None provided'}
+
+Topic:
+{inputs['topic']}
+
+Audience:
+{inputs['audience']}
+
+Tone:
+{inputs['tone']}
+
+Target words:
+{inputs['target_words']}
+
+SEO keywords:
+{_bullet_lines(inputs['keywords'])}
+
+Verified points:
+{_bullet_lines(verified_points)}
+
+Verified quotes:
+{_bullet_lines(verified_quotes)}
+
+Unsupported or weak points to avoid treating as fact:
+{_bullet_lines(unsupported_points)}
+
+Facts:
+{_bullet_lines(inputs['facts'])}
+
+Quotes:
+{_bullet_lines(inputs['quotes'])}
+
+Research notes:
+{inputs.get('research_notes') or 'None provided'}
+
+Document insights:
+{_bullet_lines(inputs.get('document_insights', []))}
+
+Return only the final blog post in markdown.
+'''.strip()
