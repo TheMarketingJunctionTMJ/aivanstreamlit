@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Optional
 
 TONE_OPTIONS = [
     "Thought leadership",
@@ -20,11 +20,11 @@ def _bullet_lines(items: Iterable[str]) -> str:
     return "\n".join(f"- {x}" for x in cleaned) if cleaned else "- None provided"
 
 
-def _language_label(language: str | None) -> str:
+def _language_label(language: Optional[str] = None) -> str:
     return "US English" if str(language or "").strip() == "US English" else "UK English"
 
 
-def _language_rules(language: str | None) -> str:
+def _language_rules(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     if chosen_language == "US English":
         spelling_guidance = "Use American spelling, grammar, and punctuation."
@@ -39,7 +39,7 @@ Language rules:
 """.strip()
 
 
-def _style_rules(language: str | None) -> str:
+def _style_rules(language: Optional[str] = None) -> str:
     return f"""
 {_language_rules(language)}
 - Do not use em dashes (—).
@@ -51,7 +51,7 @@ def _style_rules(language: str | None) -> str:
 """.strip()
 
 
-def evaluate_system_prompt(language: str | None = None) -> str:
+def evaluate_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You evaluate source material for blog writing. "
@@ -62,7 +62,7 @@ def evaluate_system_prompt(language: str | None = None) -> str:
     )
 
 
-def evaluate_user_prompt(evidence_text: str, topic: str, language: str | None = None) -> str:
+def evaluate_user_prompt(evidence_text: str, topic: str, language: Optional[str] = None) -> str:
     clipped = str(evidence_text or "")[:15000]
     return f'''
 Evaluate the material below for writing a blog on this topic: {topic}
@@ -91,7 +91,7 @@ Source material:
 '''.strip()
 
 
-def verify_system_prompt(language: str | None = None) -> str:
+def verify_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You verify evidence for blog writing. "
@@ -106,7 +106,7 @@ def verify_user_prompt(
     evaluated_material_json: str,
     evidence_text: str,
     topic: str,
-    language: str | None = None,
+    language: Optional[str] = None,
 ) -> str:
     clipped_candidates = str(evaluated_material_json or "")[:9000]
     clipped_source = str(evidence_text or "")[:15000]
@@ -138,7 +138,7 @@ Source material:
 '''.strip()
 
 
-def outline_system_prompt(language: str | None = None) -> str:
+def outline_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You are an expert B2B content strategist and blog editor. "
@@ -211,7 +211,7 @@ Document insights:
 '''.strip()
 
 
-def insights_system_prompt(language: str | None = None) -> str:
+def insights_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You analyse uploaded research material for blog writing. "
@@ -220,7 +220,7 @@ def insights_system_prompt(language: str | None = None) -> str:
     )
 
 
-def insights_user_prompt(raw_text: str, topic: str, language: str | None = None) -> str:
+def insights_user_prompt(raw_text: str, topic: str, language: Optional[str] = None) -> str:
     clipped = raw_text[:12000]
     return f'''
 Read the material below and extract insights useful for writing a blog on this topic: {topic}
@@ -245,7 +245,7 @@ Source material:
 '''.strip()
 
 
-def section_system_prompt(language: str | None = None) -> str:
+def section_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You are a senior B2B blog writer. Write polished, engaging, non-generic article sections. "
@@ -256,7 +256,7 @@ def section_system_prompt(language: str | None = None) -> str:
     )
 
 
-def section_user_prompt(inputs: dict, section: dict, title: str, outline: list[dict]) -> str:
+def section_user_prompt(inputs: dict, section: dict, title: str, outline: list) -> str:
     outline_text = "\n".join(
         f"- {item['heading']}: {item['objective']} ({item['suggestedWords']} words)"
         for item in outline
@@ -325,7 +325,7 @@ Rules:
 '''.strip()
 
 
-def revision_system_prompt(language: str | None = None) -> str:
+def revision_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You are a precise content editor. Rewrite only the provided section while following the requested instruction. "
@@ -334,7 +334,7 @@ def revision_system_prompt(language: str | None = None) -> str:
     )
 
 
-def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: str | None = None) -> str:
+def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: Optional[str] = None) -> str:
     return f'''
 Section heading: {section_heading}
 Revision instruction: {instruction}
@@ -357,7 +357,7 @@ Section content:
 '''.strip()
 
 
-def ai_friendly_blog_system_prompt(language: str | None = None) -> str:
+def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You are an expert blog writer specialising in AI-friendly, search-friendly, answer-engine-friendly content. "
