@@ -363,6 +363,85 @@ Section content:
 '''.strip()
 
 
+def ai_friendly_outline_system_prompt(language: Optional[str] = None) -> str:
+    chosen_language = _language_label(language)
+    return (
+        "You are an expert content strategist for AI-friendly, search-friendly, answer-engine-friendly blogs. "
+        "Create an outline first, not the full article. "
+        "The outline should make the final article easy to scan, question-led, practical, and ready for markdown production. "
+        "Return only valid JSON. "
+        f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
+    )
+
+
+def ai_friendly_outline_user_prompt(inputs: dict) -> str:
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
+
+    return f'''
+Create an AI-friendly blog outline in valid JSON.
+
+Required JSON shape:
+{{
+  "title": "string",
+  "outline": [
+    {{
+      "id": "s1",
+      "heading": "string",
+      "objective": "string",
+      "keyPoints": ["string"],
+      "suggestedWords": 180
+    }}
+  ]
+}}
+
+Instructions:
+- Create 5 to 7 sections.
+- The opening section should function as the introduction.
+- The final section should function as the conclusion or TL,DR lead-in.
+- Most middle sections should be question-led or answer-led, suitable for H2 headings in an AI-friendly blog.
+- Make the structure easy to scan and logically sequenced.
+- Include at least one practical how-to or process section where relevant.
+- Include at least one section that can naturally support examples or FAQs later.
+- Suggested words across all sections should roughly match the target word count.
+- Use the facts and quotes where they are relevant.
+- Prioritise verified evidence where available.
+- If verified evidence exists, do not build major sections around unsupported points.
+- If little or no verified evidence exists, rely on general knowledge but avoid unsupported numbers, named studies, or precise claims.
+- If add_hiring_section is true, include at least one dedicated section on hiring, recruitment, talent strategy, employer branding, or workforce implications where relevant to the topic.
+- Use {inputs['language']} in the title and all section headings.
+- Do not use em dashes or en dashes in the title, headings, or objectives.
+
+{_style_rules(inputs['language'])}
+
+Topic: {inputs['topic']}
+Working title: {inputs['title']}
+Audience: {inputs['audience']}
+Tone: {inputs['tone']}
+Target words: {inputs['target_words']}
+Verified points:
+{_bullet_lines(verified_points)}
+Verified quotes:
+{_bullet_lines(verified_quotes)}
+Unsupported or weak points to avoid treating as established fact:
+{_bullet_lines(unsupported_points)}
+SEO keywords:
+{_bullet_lines(inputs['keywords'])}
+Facts:
+{_bullet_lines(inputs['facts'])}
+Quotes:
+{_bullet_lines(inputs['quotes'])}
+Research notes:
+{inputs.get('research_notes') or 'None provided'}
+Document insights:
+{_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
+'''.strip()
+
+
 def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -373,7 +452,11 @@ def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     )
 
 
-def ai_friendly_blog_user_prompt(inputs: dict) -> str:
+def ai_friendly_blog_user_prompt(
+    inputs: dict,
+    outline_title: Optional[str] = None,
+    outline: Optional[list] = None,
+) -> str:
     verified = inputs.get("verified_evidence") or {}
     verified_points = verified.get("verified_points", [])
     verified_quotes = verified.get("verified_quotes", [])
@@ -383,6 +466,37 @@ def ai_friendly_blog_user_prompt(inputs: dict) -> str:
     topic = inputs["topic"] or inputs["title"] or "the topic"
     audience = inputs["audience"] or "a general professional audience"
 
+    outline = outline or []
+    title_to_use = outline_title or inputs["title"] or topic
+
+    if outline:
+        outline_text = "\n".join(
+            [
+                f"Section {idx + 1}: {item.get('heading', '')}\n"
+                f"Objective: {item.get('objective', '')}\n"
+                f"Key points:\n{_bullet_lines(item.get('keyPoints', []))}\n"
+                f"Suggested words: {item.get('suggestedWords', 180)}"
+                for idx, item in enumerate(outline)
+            ]
+        )
+        outline_instruction = f"""
+Use this approved outline as the backbone of the article.
+Follow the section order closely.
+Use each heading as the basis for a major section in the article.
+Make sure the content under each heading reflects that section's objective and key points.
+
+Approved title:
+{title_to_use}
+
+Approved outline:
+{outline_text}
+""".strip()
+    else:
+        outline_instruction = """
+No approved outline was supplied.
+Create a strong AI-friendly structure yourself while still following all requirements below.
+""".strip()
+
     return f'''
 Write a {word_count}-word blog post about "{topic}" for {audience}.
 
@@ -390,8 +504,10 @@ Make it AI-friendly using this structure.
 
 Format requirements:
 - Use a strong H1 title at the top.
+- Use the approved title if one is supplied.
 - Include a short introduction after the title.
-- Use question headings as H2s, such as "What is X?" or "How do I do Y?"
+- Use question headings as H2s where suitable for AI-friendly reading and answer engines.
+- If an approved outline is supplied, follow those headings closely.
 - Answer each question immediately with 1 to 2 clear sentences before expanding further.
 - Start major sections with **Key takeaway:** followed by one concise sentence.
 - Include at least one numbered step-by-step process.
@@ -434,6 +550,9 @@ Important evidence rules:
 - Only use verified quotes verbatim.
 - Do not introduce unsupported statistics, named reports, or precise claims as established fact.
 - If evidence is limited, keep claims broad, practical, and honest.
+
+Outline guidance:
+{outline_instruction}
 
 Inputs:
 Working title:
