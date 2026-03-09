@@ -66,6 +66,7 @@ def init_state() -> None:
         "show_seo_keyword_dialog": False,
         "pending_outline_generation": False,
         "ai_friendly_draft": "",
+        "ai_friendly_draft_editor": "",
         "pending_ai_friendly_generation": False,
     }
     for key, value in defaults.items():
@@ -407,6 +408,7 @@ def run_outline_generation() -> None:
     st.session_state.sections_workspace_ready = False
     st.session_state.new_section_prompt = ""
     st.session_state.ai_friendly_draft = ""
+    st.session_state.ai_friendly_draft_editor = ""
 
     keys_to_delete = [
         key
@@ -433,13 +435,34 @@ def run_ai_friendly_generation() -> None:
     run_evan_light(inputs)
     inputs = current_inputs()
 
+    seo_keywords = [clean_text(keyword) for keyword in inputs["keywords"] if clean_text(keyword)]
+    keyword_instruction = ""
+    keyword_footer = ""
+
+    if seo_keywords:
+        keyword_instruction = (
+            "\n\nAdditional SEO requirement:\n"
+            "Use every SEO keyword or phrase below naturally at least once where relevant.\n"
+            "Do not keyword-stuff, but do not omit them.\n"
+            + "\n".join(f"- {keyword}" for keyword in seo_keywords)
+        )
+
+        keyword_footer = "\n\n## SEO keywords used\n\n" + "\n".join(
+            f"- {keyword}" for keyword in seo_keywords
+        )
+
     response = generate_text(
         ai_friendly_blog_system_prompt(inputs["language"]),
-        ai_friendly_blog_user_prompt(inputs),
+        ai_friendly_blog_user_prompt(inputs) + keyword_instruction,
         max_tokens=3800,
     )
 
-    st.session_state.ai_friendly_draft = clean_text(response)
+    final_draft = response.strip()
+    if keyword_footer:
+        final_draft = f"{final_draft}{keyword_footer}"
+
+    st.session_state.ai_friendly_draft = final_draft
+    st.session_state.ai_friendly_draft_editor = final_draft
     st.session_state.outline = []
     st.session_state.sections_content = {}
     st.session_state.sections_workspace_ready = False
@@ -668,6 +691,7 @@ if st.session_state.show_seo_keyword_dialog:
                     st.warning("Please select at least one SEO keyword.")
                 else:
                     st.session_state.keywords_text = "\n".join(selected_keywords)
+                    st.session_state.selected_seo_keywords = selected_keywords
                     st.session_state.show_seo_keyword_dialog = False
                     if st.session_state.blog_mode == "Writer Version":
                         st.session_state.pending_outline_generation = True
@@ -1161,17 +1185,25 @@ else:
     st.subheader("5. AI-Friendly full draft")
 
     if st.session_state.ai_friendly_draft:
+        if not st.session_state.ai_friendly_draft_editor:
+            st.session_state.ai_friendly_draft_editor = st.session_state.ai_friendly_draft
+
         draft_height = calc_text_area_height(
-            st.session_state.ai_friendly_draft,
+            st.session_state.ai_friendly_draft_editor,
             min_height=600,
             line_px=26,
             extra_lines=10,
         )
-        st.text_area(
+
+        edited_draft = st.text_area(
             "Generated AI-friendly blog",
-            key="ai_friendly_draft",
+            value=st.session_state.ai_friendly_draft_editor,
+            key="ai_friendly_draft_editor_widget",
             height=draft_height,
         )
+
+        st.session_state.ai_friendly_draft_editor = edited_draft
+        st.session_state.ai_friendly_draft = edited_draft
 
         ai_action_col1, ai_action_col2 = st.columns([1.2, 3.8])
         with ai_action_col1:
