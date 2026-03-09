@@ -17,8 +17,6 @@ from lib.prompts import (
     TONE_OPTIONS,
     ai_friendly_blog_system_prompt,
     ai_friendly_blog_user_prompt,
-    ai_outline_system_prompt,
-    ai_outline_user_prompt,
     evaluate_system_prompt,
     evaluate_user_prompt,
     insights_system_prompt,
@@ -71,9 +69,6 @@ def init_state() -> None:
         "ai_friendly_draft": "",
         "ai_friendly_draft_editor": "",
         "pending_ai_friendly_generation": False,
-        "ai_outline_title": "",
-        "ai_friendly_outline": [],
-        "pending_ai_outline_generation": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -431,45 +426,6 @@ def run_outline_generation() -> None:
     st.rerun()
 
 
-def build_ai_outline_text(ai_outline: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for idx, item in enumerate(ai_outline, start=1):
-        question = clean_text(item.get("question", "")) or f"Question {idx}"
-        takeaway = clean_text(item.get("keyTakeaway", ""))
-        objective = clean_text(item.get("objective", ""))
-        suggested_words = max(80, int(item.get("suggestedWords", 180)))
-        lines.append(f"- {question} | Key takeaway: {takeaway} | Objective: {objective} | Suggested words: {suggested_words}")
-    return "\n".join(lines)
-
-
-def run_ai_outline_generation() -> None:
-    st.session_state.pending_ai_outline_generation = False
-
-    inputs = current_inputs()
-    if not inputs["topic"]:
-        st.error("Please enter a topic first.")
-        return
-
-    run_evan_light(inputs)
-    inputs = current_inputs()
-
-    response = generate_text(
-        ai_outline_system_prompt(inputs["language"]),
-        ai_outline_user_prompt(inputs),
-        max_tokens=2200,
-    )
-    parsed = parse_json_response(response)
-    st.session_state.ai_outline_title = clean_text(
-        parsed.get("title") or inputs["title"] or inputs["topic"]
-    )
-    st.session_state.ai_friendly_outline = parsed.get("outline", [])
-    st.session_state.ai_friendly_draft = ""
-    st.session_state.ai_friendly_draft_editor = ""
-    normalise_ai_outline()
-    st.success("AI-friendly outline generated.")
-    st.rerun()
-
-
 def run_ai_friendly_generation() -> None:
     st.session_state.pending_ai_friendly_generation = False
 
@@ -497,15 +453,9 @@ def run_ai_friendly_generation() -> None:
             f"- {keyword}" for keyword in seo_keywords
         )
 
-    outline_text = build_ai_outline_text(st.session_state.get("ai_friendly_outline", []))
-
     response = generate_text(
         ai_friendly_blog_system_prompt(inputs["language"]),
-        ai_friendly_blog_user_prompt(
-            inputs,
-            st.session_state.get("ai_outline_title", ""),
-            outline_text,
-        ) + keyword_instruction,
+        ai_friendly_blog_user_prompt(inputs) + keyword_instruction,
         max_tokens=3800,
     )
 
@@ -520,6 +470,7 @@ def run_ai_friendly_generation() -> None:
     st.session_state.sections_workspace_ready = False
     st.success("AI-friendly blog generated.")
     st.rerun()
+
 
 def generate_new_section_from_prompt(one_liner: str) -> dict[str, Any]:
     inputs = current_inputs()
@@ -672,22 +623,6 @@ def apply_pending_content_updates() -> None:
             st.session_state["revision_success_message"] = "Section revised."
 
 
-def normalise_ai_outline() -> None:
-    cleaned_outline: list[dict[str, Any]] = []
-    for idx, section in enumerate(st.session_state.ai_friendly_outline):
-        section_id = str(section.get("id") or f"aq{idx+1}")
-        cleaned_outline.append(
-            {
-                "id": section_id,
-                "question": clean_text(section.get("question", "")),
-                "keyTakeaway": clean_text(section.get("keyTakeaway", "")),
-                "objective": clean_text(section.get("objective", "")),
-                "suggestedWords": max(80, int(section.get("suggestedWords", 180))),
-            }
-        )
-    st.session_state.ai_friendly_outline = cleaned_outline
-
-
 def switch_blog_mode(mode: str) -> None:
     if st.session_state.blog_mode == mode:
         return
@@ -697,15 +632,10 @@ def switch_blog_mode(mode: str) -> None:
 init_state()
 apply_pending_content_updates()
 normalise_outline()
-normalise_ai_outline()
 
 if st.session_state.get("pending_outline_generation"):
     with st.spinner("Generating outline..."):
         run_outline_generation()
-
-if st.session_state.get("pending_ai_outline_generation"):
-    with st.spinner("Generating AI-friendly outline..."):
-        run_ai_outline_generation()
 
 if st.session_state.get("pending_ai_friendly_generation"):
     with st.spinner("Generating AI-friendly blog..."):
@@ -768,7 +698,7 @@ if st.session_state.show_seo_keyword_dialog:
                     if st.session_state.blog_mode == "Writer Version":
                         st.session_state.pending_outline_generation = True
                     else:
-                        st.session_state.pending_ai_outline_generation = True
+                        st.session_state.pending_ai_friendly_generation = True
                     st.rerun()
 
     seo_keywords_dialog()
@@ -1084,10 +1014,10 @@ with right:
             with prepare_col2:
                 st.caption("This generates every missing section below in Part 5. Use Revise later for changes.")
     else:
-        st.subheader("4. AI-Friendly outline")
-        st.caption("This mode now creates an editable question-led outline first, then uses that outline to generate the full AI-friendly blog.")
+        st.subheader("4. AI-Friendly draft")
+        st.caption("This mode generates a complete blog directly using question-led headings, quick answers, FAQs, and a TL;DR.")
 
-        if st.button("Generate AI-friendly outline", type="primary", use_container_width=True):
+        if st.button("Generate AI-friendly blog", type="primary", use_container_width=True):
             try:
                 inputs = current_inputs()
                 if not inputs["topic"]:
@@ -1099,13 +1029,13 @@ with right:
                     st.session_state.show_seo_keyword_dialog = True
                     st.rerun()
                 else:
-                    run_ai_outline_generation()
+                    run_ai_friendly_generation()
             except Exception as exc:
-                st.error(f"Could not generate AI-friendly outline: {exc}")
+                st.error(f"Could not generate AI-friendly blog: {exc}")
 
         verified = st.session_state.get("verified_evidence", {}) or {}
         if verified.get("verified_points") or verified.get("verified_quotes"):
-            with st.expander("Verified evidence available to the AI-friendly outline", expanded=False):
+            with st.expander("Verified evidence available to the AI-friendly draft", expanded=False):
                 if verified.get("verified_points"):
                     st.markdown("**Verified points**")
                     for item in verified.get("verified_points", [])[:10]:
@@ -1118,68 +1048,6 @@ with right:
                     st.markdown("**Unsupported or weak points**")
                     for item in verified.get("unsupported_points", [])[:6]:
                         st.write(f"- {item}")
-
-        if st.session_state.ai_friendly_outline:
-            st.text_input("Final AI-friendly article title", key="ai_outline_title")
-            st.caption("You can edit the questions, key takeaways, intent, and word counts before generating the full draft.")
-
-            updated_ai_outline: list[dict[str, Any]] = []
-            for idx, section in enumerate(st.session_state.ai_friendly_outline):
-                question_label = clean_text(section.get("question", "")) or f"Question {idx + 1}"
-                with st.expander(f"Question {idx + 1}: {question_label}", expanded=(idx == 0)):
-                    question = st.text_input(
-                        f"Question {idx + 1}",
-                        value=clean_text(section.get("question", "")),
-                        key=f"ai_question_{idx}",
-                    )
-                    key_takeaway = st.text_input(
-                        f"Key takeaway {idx + 1}",
-                        value=clean_text(section.get("keyTakeaway", "")),
-                        key=f"ai_takeaway_{idx}",
-                    )
-                    objective_value = clean_text(section.get("objective", ""))
-                    objective_height = calc_text_area_height(
-                        objective_value,
-                        min_height=140,
-                        line_px=28,
-                        extra_lines=3,
-                    )
-                    objective = st.text_area(
-                        f"Section notes {idx + 1}",
-                        value=objective_value,
-                        key=f"ai_objective_{idx}",
-                        height=objective_height,
-                    )
-                    suggested_words = st.number_input(
-                        f"Suggested words {idx + 1}",
-                        min_value=80,
-                        max_value=800,
-                        value=int(section.get("suggestedWords", 180)),
-                        step=20,
-                        key=f"ai_words_{idx}",
-                    )
-                    updated_ai_outline.append(
-                        {
-                            "id": section.get("id", f"aq{idx+1}"),
-                            "question": clean_text(question),
-                            "keyTakeaway": clean_text(key_takeaway),
-                            "objective": clean_text(objective),
-                            "suggestedWords": int(suggested_words),
-                        }
-                    )
-
-            st.session_state.ai_friendly_outline = updated_ai_outline
-            normalise_ai_outline()
-
-            generate_blog_col, generate_blog_copy_col = st.columns([1.5, 3])
-            with generate_blog_col:
-                if st.button("Generate complete blog", use_container_width=True, type="primary"):
-                    try:
-                        run_ai_friendly_generation()
-                    except Exception as exc:
-                        st.error(f"Could not generate AI-friendly blog: {exc}")
-            with generate_blog_copy_col:
-                st.caption("The full draft below will follow the edited AI-friendly outline above.")
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -1318,9 +1186,6 @@ if st.session_state.blog_mode == "Writer Version":
 
 else:
     st.subheader("5. AI-Friendly full draft")
-
-    if st.session_state.ai_friendly_outline and not st.session_state.ai_friendly_draft:
-        st.info("Edit the AI-friendly outline above, then click 'Generate complete blog' to create the full draft here.")
 
     if st.session_state.ai_friendly_draft:
         if not st.session_state.ai_friendly_draft_editor:
