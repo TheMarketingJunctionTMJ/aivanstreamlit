@@ -49,6 +49,7 @@ def init_state() -> None:
         "tone": "Thought leadership",
         "language": "UK English",
         "target_words": 1200,
+        "add_hiring_section": False,
         "document_text": "",
         "document_insights": [],
         "quoted_lines": [],
@@ -93,6 +94,7 @@ def current_inputs() -> dict[str, Any]:
         "document_insights": st.session_state.document_insights,
         "verified_evidence": st.session_state.verified_evidence,
         "blog_mode": st.session_state.blog_mode,
+        "add_hiring_section": bool(st.session_state.add_hiring_section),
     }
 
 
@@ -815,6 +817,7 @@ with left:
     st.selectbox("Tone", TONE_OPTIONS, key="tone")
     st.selectbox("Language", LANGUAGE_OPTIONS, key="language")
     st.slider("Target words", min_value=600, max_value=2500, step=100, key="target_words")
+    st.checkbox("Do you want to add a hiring section?", key="add_hiring_section", help="If checked, the blog will include at least one section covering the impact on hiring.")
     st.text_area("SEO keywords (one per line)", key="keywords_text", height=140)
 
     st.subheader("2. Facts, quotes, and notes")
