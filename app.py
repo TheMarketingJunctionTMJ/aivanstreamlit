@@ -80,6 +80,8 @@ def init_state() -> None:
         "ai_outline": [],
         "ai_new_section_prompt": "",
         "pending_ai_outline_generation": False,
+        "full_blog_revision_prompt": "",
+        "ai_full_blog_revision_prompt": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -294,6 +296,65 @@ def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list
         cleaned_sections.append({"heading": fallback_title or "Article", "content": text})
 
     return cleaned_sections
+
+
+def sections_to_markdown(sections: list[dict[str, str]]) -> str:
+    return "\n\n".join(
+        f"## {clean_text(section.get('heading', 'Section'))}\n\n{clean_text(section.get('content', ''))}"
+        for section in sections
+        if clean_text(section.get("content", ""))
+    ).strip()
+
+
+def apply_revised_markdown_to_writer_sections(
+    revised_markdown: str,
+    outline_sections: list[dict[str, Any]],
+) -> None:
+    parsed_sections = markdown_to_export_sections(
+        revised_markdown,
+        st.session_state.outline_title or st.session_state.topic or "Article",
+    )
+
+    parsed_map = {
+        normalise_heading_for_compare(section["heading"]): section["content"]
+        for section in parsed_sections
+        if clean_text(section.get("heading")) and clean_text(section.get("content"))
+    }
+
+    used_keys: set[str] = set()
+
+    for section in outline_sections:
+        section_id = str(section["id"])
+        heading = clean_text(section.get("heading", ""))
+        lookup_key = normalise_heading_for_compare(heading)
+        matched_content = parsed_map.get(lookup_key)
+
+        if matched_content:
+            cleaned_content = sanitise_section_content(matched_content, heading)
+            st.session_state.sections_content[section_id] = cleaned_content
+            st.session_state[f"content_{section_id}"] = cleaned_content
+            used_keys.add(lookup_key)
+
+    leftover_sections = [
+        section
+        for section in parsed_sections
+        if normalise_heading_for_compare(section["heading"]) not in used_keys
+    ]
+
+    if leftover_sections and outline_sections:
+        last_section = outline_sections[-1]
+        last_id = str(last_section["id"])
+        existing_content = clean_text(st.session_state.sections_content.get(last_id, ""))
+        extra_text = "\n\n".join(
+            f"## {section['heading']}\n\n{section['content']}" for section in leftover_sections
+        ).strip()
+
+        merged_content = clean_text(
+            f"{existing_content}\n\n{extra_text}" if existing_content and extra_text else existing_content or extra_text
+        )
+        merged_content = sanitise_section_content(merged_content, clean_text(last_section.get("heading", "")))
+        st.session_state.sections_content[last_id] = merged_content
+        st.session_state[f"content_{last_id}"] = merged_content
 
 
 def make_section_id() -> str:
@@ -1401,7 +1462,7 @@ if st.session_state.blog_mode == "Writer Version":
         updated_outline: list[dict[str, Any]] = []
         delete_section_id: str | None = None
         for idx, section in enumerate(st.session_state.outline):
-            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
+            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=False):
                 heading = st.text_input(
                     f"Heading {idx + 1}",
                     value=clean_text(section.get("heading", "")),
@@ -1518,7 +1579,7 @@ if st.session_state.blog_mode == "Writer Version":
                 st.session_state[content_key] = st.session_state.sections_content.get(key, "")
 
             heading_label = clean_text(section.get("heading", "Untitled section")) or "Untitled section"
-            with st.expander(f"Section {idx + 1}: {heading_label}", expanded=(idx == 0)):
+            with st.expander(f"Section {idx + 1}: {heading_label}", expanded=False):
                 st.caption(section.get("objective", ""))
 
                 if section.get("keyPoints"):
@@ -1642,7 +1703,7 @@ else:
         updated_ai_outline: list[dict[str, Any]] = []
         delete_ai_section_id_value: str | None = None
         for idx, section in enumerate(st.session_state.ai_outline):
-            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
+            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=False):
                 heading = st.text_input(
                     f"AI heading {idx + 1}",
                     value=clean_text(section.get("heading", "")),
@@ -1776,6 +1837,7 @@ if st.session_state.blog_mode == "Writer Version":
             inputs["keywords"],
         )
 
+        article_markdown = sections_to_markdown(ordered_sections)
         combined_markdown = "\n\n".join(
             f"## {item['heading']}\n\n{item['content']}"
             for item in export_sections
@@ -1790,6 +1852,39 @@ if st.session_state.blog_mode == "Writer Version":
                 extra_lines=8,
             )
             st.text_area("Combined article preview", value=combined_markdown, height=preview_height)
+
+            st.text_input(
+                "Revision instruction for full blog",
+                key="full_blog_revision_prompt",
+                placeholder="e.g. Make the full blog more persuasive, tighten repetition, and improve the conclusion",
+            )
+
+            if st.button("Revise full blog", key="revise_full_writer_blog", use_container_width=True):
+                try:
+                    revision_instruction = clean_text(st.session_state.full_blog_revision_prompt)
+                    if not revision_instruction:
+                        st.warning("Enter a revision instruction for the full blog.")
+                    else:
+                        revised_full_blog = clean_text(
+                            generate_text(
+                                revision_system_prompt(inputs["language"]),
+                                revision_user_prompt(
+                                    title or "Full article",
+                                    article_markdown,
+                                    revision_instruction,
+                                    inputs["language"],
+                                ),
+                                max_tokens=4200,
+                            )
+                        )
+                        apply_revised_markdown_to_writer_sections(
+                            revised_full_blog,
+                            st.session_state.outline,
+                        )
+                        st.success("Full blog revised.")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Full blog revision failed: {exc}")
 
         export_col1, export_col2 = st.columns(2)
 
@@ -1837,6 +1932,37 @@ else:
                 extra_lines=8,
             )
             st.text_area("Combined article preview", value=preview_markdown, height=preview_height)
+
+            st.text_input(
+                "Revision instruction for full blog",
+                key="ai_full_blog_revision_prompt",
+                placeholder="e.g. Make the blog clearer, reduce fluff, and strengthen the opening",
+            )
+
+            if st.button("Revise full blog", key="revise_full_ai_blog", use_container_width=True):
+                try:
+                    revision_instruction = clean_text(st.session_state.ai_full_blog_revision_prompt)
+                    if not revision_instruction:
+                        st.warning("Enter a revision instruction for the full blog.")
+                    else:
+                        revised_ai_blog = clean_text(
+                            generate_text(
+                                revision_system_prompt(inputs["language"]),
+                                revision_user_prompt(
+                                    export_title or "Full article",
+                                    st.session_state.ai_friendly_draft,
+                                    revision_instruction,
+                                    inputs["language"],
+                                ),
+                                max_tokens=4200,
+                            )
+                        )
+                        st.session_state.ai_friendly_draft = revised_ai_blog
+                        st.session_state.ai_friendly_draft_editor = revised_ai_blog
+                        st.success("Full blog revised.")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Full blog revision failed: {exc}")
 
         export_col1, export_col2 = st.columns(2)
 
