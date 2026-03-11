@@ -82,6 +82,8 @@ def init_state() -> None:
         "pending_ai_outline_generation": False,
         "full_blog_revision_prompt": "",
         "ai_full_blog_revision_prompt": "",
+        "pending_full_blog_revision": None,
+        "pending_ai_full_blog_revision": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -332,7 +334,6 @@ def apply_revised_markdown_to_writer_sections(
         if matched_content:
             cleaned_content = sanitise_section_content(matched_content, heading)
             st.session_state.sections_content[section_id] = cleaned_content
-            st.session_state[f"content_{section_id}"] = cleaned_content
             used_keys.add(lookup_key)
 
     leftover_sections = [
@@ -354,7 +355,22 @@ def apply_revised_markdown_to_writer_sections(
         )
         merged_content = sanitise_section_content(merged_content, clean_text(last_section.get("heading", "")))
         st.session_state.sections_content[last_id] = merged_content
-        st.session_state[f"content_{last_id}"] = merged_content
+
+    for section in outline_sections:
+        section_id = str(section["id"])
+        st.session_state[f"content_{section_id}"] = st.session_state.sections_content.get(section_id, "")
+
+
+def queue_full_blog_revision_for_writer(revised_markdown: str) -> None:
+    st.session_state["pending_full_blog_revision"] = {
+        "revised_markdown": clean_text(revised_markdown),
+    }
+
+
+def queue_full_blog_revision_for_ai(revised_markdown: str) -> None:
+    st.session_state["pending_ai_full_blog_revision"] = {
+        "revised_markdown": clean_text(revised_markdown),
+    }
 
 
 def make_section_id() -> str:
@@ -830,7 +846,10 @@ def apply_pending_content_updates() -> None:
         generated_text = clean_text(pending_generation.get("content", ""))
 
         if section_id:
-            matched_section = next((section for section in st.session_state.outline if str(section.get("id")) == section_id), None)
+            matched_section = next(
+                (section for section in st.session_state.outline if str(section.get("id")) == section_id),
+                None,
+            )
             heading = clean_text((matched_section or {}).get("heading", ""))
             generated_text = sanitise_section_content(generated_text, heading)
             content_key = f"content_{section_id}"
@@ -844,13 +863,34 @@ def apply_pending_content_updates() -> None:
         revised_text = clean_text(pending_revision.get("content", ""))
 
         if section_id:
-            matched_section = next((section for section in st.session_state.outline if str(section.get("id")) == section_id), None)
+            matched_section = next(
+                (section for section in st.session_state.outline if str(section.get("id")) == section_id),
+                None,
+            )
             heading = clean_text((matched_section or {}).get("heading", ""))
             revised_text = sanitise_section_content(revised_text, heading)
             content_key = f"content_{section_id}"
             st.session_state[content_key] = revised_text
             st.session_state.sections_content[section_id] = revised_text
             st.session_state["revision_success_message"] = "Section revised."
+
+    pending_full_blog_revision = st.session_state.pop("pending_full_blog_revision", None)
+    if pending_full_blog_revision:
+        revised_markdown = clean_text(pending_full_blog_revision.get("revised_markdown", ""))
+        if revised_markdown:
+            apply_revised_markdown_to_writer_sections(
+                revised_markdown,
+                st.session_state.outline,
+            )
+            st.session_state["revision_success_message"] = "Full blog revised."
+
+    pending_ai_full_blog_revision = st.session_state.pop("pending_ai_full_blog_revision", None)
+    if pending_ai_full_blog_revision:
+        revised_markdown = clean_text(pending_ai_full_blog_revision.get("revised_markdown", ""))
+        if revised_markdown:
+            st.session_state.ai_friendly_draft = revised_markdown
+            st.session_state.ai_friendly_draft_editor = revised_markdown
+            st.session_state["revision_success_message"] = "Full blog revised."
 
 
 def switch_blog_mode(mode: str) -> None:
@@ -1865,23 +1905,24 @@ if st.session_state.blog_mode == "Writer Version":
                     if not revision_instruction:
                         st.warning("Enter a revision instruction for the full blog.")
                     else:
+                        full_revision_instruction = (
+                            f"{revision_instruction}\n\n"
+                            "Keep the same section structure and headings where possible. "
+                            "Do not remove existing content unless needed for the requested revision."
+                        )
                         revised_full_blog = clean_text(
                             generate_text(
                                 revision_system_prompt(inputs["language"]),
                                 revision_user_prompt(
                                     title or "Full article",
                                     article_markdown,
-                                    revision_instruction,
+                                    full_revision_instruction,
                                     inputs["language"],
                                 ),
                                 max_tokens=4200,
                             )
                         )
-                        apply_revised_markdown_to_writer_sections(
-                            revised_full_blog,
-                            st.session_state.outline,
-                        )
-                        st.success("Full blog revised.")
+                        queue_full_blog_revision_for_writer(revised_full_blog)
                         st.rerun()
                 except Exception as exc:
                     st.error(f"Full blog revision failed: {exc}")
@@ -1957,9 +1998,7 @@ else:
                                 max_tokens=4200,
                             )
                         )
-                        st.session_state.ai_friendly_draft = revised_ai_blog
-                        st.session_state.ai_friendly_draft_editor = revised_ai_blog
-                        st.success("Full blog revised.")
+                        queue_full_blog_revision_for_ai(revised_ai_blog)
                         st.rerun()
                 except Exception as exc:
                     st.error(f"Full blog revision failed: {exc}")
