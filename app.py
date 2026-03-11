@@ -353,12 +353,16 @@ def apply_revised_markdown_to_writer_sections(
         merged_content = clean_text(
             f"{existing_content}\n\n{extra_text}" if existing_content and extra_text else existing_content or extra_text
         )
-        merged_content = sanitise_section_content(merged_content, clean_text(last_section.get("heading", "")))
+        merged_content = sanitise_section_content(
+            merged_content,
+            clean_text(last_section.get("heading", "")),
+        )
         st.session_state.sections_content[last_id] = merged_content
 
     for section in outline_sections:
         section_id = str(section["id"])
-        st.session_state[f"content_{section_id}"] = st.session_state.sections_content.get(section_id, "")
+        st.session_state.pop(f"content_{section_id}", None)
+        st.session_state.pop(f"rev_inst_{section_id}", None)
 
 
 def queue_full_blog_revision_for_writer(revised_markdown: str) -> None:
