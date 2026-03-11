@@ -485,27 +485,6 @@ def run_ai_outline_generation() -> None:
     st.rerun()
 
 
-def serialise_outline_for_prompt(outline: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for idx, section in enumerate(outline, start=1):
-        heading = clean_text(section.get("heading", ""))
-        objective = clean_text(section.get("objective", ""))
-        suggested_words = int(section.get("suggestedWords", 180))
-        key_points = [clean_text(point) for point in section.get("keyPoints", []) if clean_text(point)]
-
-        lines.append(f"Section {idx}: {heading}")
-        lines.append(f"Objective: {objective}")
-        lines.append(f"Suggested words: {suggested_words}")
-        if key_points:
-            lines.append("Key points:")
-            lines.extend(f"- {point}" for point in key_points)
-        else:
-            lines.append("Key points:\n- None provided")
-        lines.append("")
-
-    return "\n".join(lines).strip()
-
-
 def run_ai_friendly_generation() -> None:
     st.session_state.pending_ai_friendly_generation = False
 
@@ -819,6 +798,29 @@ def switch_blog_mode(mode: str) -> None:
     st.session_state.blog_mode = mode
 
 
+def render_mode_controls() -> None:
+    st.markdown("### Writing mode")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(
+            "Writer",
+            key="compact_writer_mode",
+            use_container_width=True,
+            type="primary" if st.session_state.blog_mode == "Writer Version" else "secondary",
+        ):
+            switch_blog_mode("Writer Version")
+            st.rerun()
+    with col2:
+        if st.button(
+            "AI-Friendly",
+            key="compact_ai_mode",
+            use_container_width=True,
+            type="primary" if st.session_state.blog_mode == "AI Friendly" else "secondary",
+        ):
+            switch_blog_mode("AI Friendly")
+            st.rerun()
+
+
 init_state()
 apply_pending_content_updates()
 normalise_outline()
@@ -902,18 +904,27 @@ st.markdown(
     """
     <style>
     .stApp {
-        background: #f6f8fb;
+        background: #f4f7fb;
+    }
+
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1.5rem;
+        max-width: 1500px;
     }
 
     section[data-testid="stSidebar"] {
         background: #ffffff;
-        border-right: 1px solid rgba(15, 23, 42, 0.06);
+        border-right: 1px solid rgba(15, 23, 42, 0.08);
+        min-width: 285px !important;
+        max-width: 285px !important;
     }
 
-    .block-container {
-        padding-top: 1.25rem;
-        padding-bottom: 2rem;
-        max-width: 1320px;
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0.8rem;
+        padding-left: 0.85rem;
+        padding-right: 0.85rem;
     }
 
     h1, h2, h3 {
@@ -921,118 +932,151 @@ st.markdown(
         letter-spacing: -0.02em;
     }
 
-    .app-shell {
+    .sidebar-brand {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 0.75rem;
+    }
+
+    .sidebar-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        background: #1368e8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+
+    .sidebar-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.1;
+        margin-bottom: 2px;
+    }
+
+    .sidebar-subtitle {
+        font-size: 0.93rem;
+        color: #64748b;
+        line-height: 1.2;
+    }
+
+    .sidebar-label {
+        font-size: 0.78rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-top: 0.8rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .history-chip {
+        background: #eef3f9;
+        padding: 0.72rem 0.85rem;
+        border-radius: 12px;
+        color: #334155;
+        font-size: 0.92rem;
+        line-height: 1.2;
+        border: 1px solid rgba(15, 23, 42, 0.04);
+    }
+
+    .main-wrap {
+        max-width: 860px;
+        margin: 0 auto;
         padding-top: 0.2rem;
     }
 
-    .hero-card,
-    .content-card,
-    .soft-card,
-    .result-card {
+    .page-title {
+        font-size: 2.15rem;
+        font-weight: 760;
+        color: #0f172a;
+        margin-bottom: 0.1rem;
+    }
+
+    .page-subtitle {
+        font-size: 1.02rem;
+        color: #64748b;
+        margin-bottom: 1.35rem;
+    }
+
+    .form-card {
         background: #ffffff;
-        border: 1px solid rgba(15, 23, 42, 0.07);
-        border-radius: 22px;
-        padding: 1.2rem 1.2rem 1rem 1.2rem;
-        box-shadow: 0 8px 30px rgba(15, 23, 42, 0.04);
-    }
-
-    .hero-title {
-        font-size: 2rem;
-        font-weight: 750;
-        color: #0f172a;
-        margin-bottom: 0.2rem;
-    }
-
-    .hero-subtitle {
-        font-size: 1rem;
-        color: #64748b;
-        margin-bottom: 0;
-    }
-
-    .section-label {
-        font-size: 0.78rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: #64748b;
-        font-weight: 700;
-        margin-bottom: 0.45rem;
-    }
-
-    .stat-pill {
-        display: inline-block;
-        padding: 0.45rem 0.8rem;
-        border-radius: 999px;
-        background: #eff6ff;
-        color: #1d4ed8;
-        font-size: 0.9rem;
-        font-weight: 600;
-        margin-right: 0.45rem;
-        margin-bottom: 0.4rem;
-    }
-
-    .mode-mini {
-        padding: 0.85rem 1rem;
-        border-radius: 16px;
         border: 1px solid rgba(15, 23, 42, 0.08);
-        background: #f8fafc;
-        min-height: 96px;
+        border-radius: 22px;
+        padding: 1.3rem 1.35rem 1.1rem 1.35rem;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+        margin-bottom: 1.2rem;
     }
 
-    .mode-mini.active {
-        background: #eff6ff;
-        border: 1px solid rgba(37, 99, 235, 0.22);
+    .result-card {
+        background: #eaf3ff;
+        border: 1px solid rgba(59, 130, 246, 0.12);
+        border-radius: 20px;
+        padding: 1rem 1.15rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
     }
 
-    .mode-mini-title {
+    .result-title {
+        font-size: 1.15rem;
         font-weight: 700;
-        font-size: 1rem;
         color: #0f172a;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.15rem;
     }
 
-    .mode-mini-copy {
-        color: #64748b;
-        font-size: 0.92rem;
-        line-height: 1.45;
+    .result-copy {
+        font-size: 0.98rem;
+        color: #5b6b80;
     }
 
     div[data-testid="stTextInput"] input,
-    div[data-testid="stTextArea"] textarea,
     div[data-testid="stNumberInput"] input {
         border-radius: 14px !important;
+        min-height: 46px !important;
+    }
+
+    div[data-testid="stTextArea"] textarea {
+        border-radius: 16px !important;
     }
 
     div[data-baseweb="select"] > div,
     div[data-testid="stSelectbox"] > div > div {
         border-radius: 14px !important;
+        min-height: 46px !important;
     }
 
     .stButton > button,
     .stDownloadButton > button {
         border-radius: 14px !important;
-        min-height: 2.8rem;
-        font-weight: 650;
+        min-height: 46px !important;
+        font-weight: 700 !important;
     }
 
-    .subtle-note {
+    .big-primary .stButton > button {
+        background: #1368e8 !important;
+        color: white !important;
+        border: none !important;
+        min-height: 48px !important;
+        font-size: 1rem !important;
+    }
+
+    .small-note {
         color: #64748b;
-        font-size: 0.95rem;
-        margin-top: -0.2rem;
-        margin-bottom: 0.6rem;
-    }
-
-    .upload-note {
-        color: #64748b;
-        font-size: 0.9rem;
-    }
-
-    .history-chip {
-        background: #f1f5f9;
-        padding: 0.65rem 0.8rem;
-        border-radius: 12px;
-        color: #334155;
         font-size: 0.92rem;
-        margin-top: 0.35rem;
+        margin-top: -0.2rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .muted-divider {
+        margin-top: 0.5rem;
+        margin-bottom: 0.4rem;
     }
     </style>
     """,
@@ -1043,79 +1087,182 @@ if not os.getenv("ANTHROPIC_API_KEY"):
     st.error("ANTHROPIC_API_KEY is missing. Add it in your environment before using the app.")
 
 with st.sidebar:
-    st.markdown("## Blog Writer")
-    st.caption("Simple AI-assisted blog generation")
+    st.markdown(
+        """
+        <div class="sidebar-brand">
+            <div class="sidebar-icon">✎</div>
+            <div>
+                <div class="sidebar-title">Alvan</div>
+                <div class="sidebar-subtitle">Blog Writer</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.session_state.logo_bytes:
-        st.image(st.session_state.logo_bytes, width=150)
+        st.image(st.session_state.logo_bytes, width=110)
 
     logo_upload = st.file_uploader(
         "Logo",
         type=["png", "jpg", "jpeg", "webp"],
         key="logo_uploader",
-        help="Optional logo shown in the app",
+        label_visibility="collapsed",
     )
     if logo_upload is not None:
         st.session_state.logo_bytes = logo_upload.getvalue()
         st.session_state.logo_name = logo_upload.name
 
-    st.markdown("---")
-    st.markdown("##### Blog Mode")
-    mode_sidebar_col1, mode_sidebar_col2 = st.columns(2)
+    render_mode_controls()
 
-    with mode_sidebar_col1:
-        if st.button(
-            "Writer",
-            key="side_writer_mode",
-            use_container_width=True,
-            type="primary" if st.session_state.blog_mode == "Writer Version" else "secondary",
-        ):
-            switch_blog_mode("Writer Version")
-            st.rerun()
+    st.markdown("<div class='sidebar-label'>Client profile</div>", unsafe_allow_html=True)
+    st.text_input(
+        "Client profile",
+        value="Marketing Junction",
+        key="audience",
+        label_visibility="collapsed",
+        placeholder="Client or audience",
+    )
 
-    with mode_sidebar_col2:
-        if st.button(
-            "AI Friendly",
-            key="side_ai_mode",
-            use_container_width=True,
-            type="primary" if st.session_state.blog_mode == "AI Friendly" else "secondary",
-        ):
-            switch_blog_mode("AI Friendly")
-            st.rerun()
+    st.markdown("<div class='sidebar-label'>Language</div>", unsafe_allow_html=True)
+    st.radio(
+        "Language",
+        options=LANGUAGE_OPTIONS,
+        key="language",
+        label_visibility="collapsed",
+    )
 
-    st.markdown("---")
-    st.markdown("##### Blog setup")
-    st.text_input("Blog title / topic", key="topic", placeholder="e.g. why recruitment marketing matters")
-    st.text_input("Working title", key="title", placeholder="Optional final title")
-    st.text_input("Audience", key="audience", placeholder="e.g. Talent leaders, HR teams, agencies")
-    st.selectbox("Tone", TONE_OPTIONS, key="tone")
-    st.selectbox("Language", LANGUAGE_OPTIONS, key="language")
-    st.slider("Word count", min_value=600, max_value=2500, step=100, key="target_words")
+    st.markdown("<div class='sidebar-label'>Keywords</div>", unsafe_allow_html=True)
+    st.text_input(
+        "Keywords",
+        key="keywords_sidebar_compact",
+        value=st.session_state.keywords_text.replace("\n", ", "),
+        placeholder="keyword1, keyword2...",
+        label_visibility="collapsed",
+    )
+    sidebar_keywords = clean_text(st.session_state.get("keywords_sidebar_compact", ""))
+    if sidebar_keywords:
+        st.session_state.keywords_text = "\n".join(
+            [item.strip() for item in sidebar_keywords.split(",") if item.strip()]
+        )
+
+    if st.session_state.blog_mode == "AI Friendly":
+        st.checkbox(
+            "AI-Friendly (AEO)",
+            value=True,
+            disabled=True,
+            key="sidebar_aeo_badge",
+        )
+    else:
+        st.checkbox(
+            "AI-Friendly (AEO)",
+            value=False,
+            disabled=True,
+            key="sidebar_aeo_badge_off",
+        )
+
+    st.markdown("<div class='sidebar-label'>Word count</div>", unsafe_allow_html=True)
+    word_range_options = {
+        "600-900": 800,
+        "750-1500": 1200,
+        "1200-1800": 1500,
+        "1800-2500": 2200,
+    }
+
+    default_label = "750-1500"
+    current_target = int(st.session_state.target_words)
+    if current_target <= 900:
+        default_label = "600-900"
+    elif current_target <= 1500:
+        default_label = "750-1500"
+    elif current_target <= 1800:
+        default_label = "1200-1800"
+    else:
+        default_label = "1800-2500"
+
+    selected_range = st.selectbox(
+        "Word count",
+        options=list(word_range_options.keys()),
+        index=list(word_range_options.keys()).index(default_label),
+        label_visibility="collapsed",
+    )
+    st.session_state.target_words = word_range_options[selected_range]
+
     st.checkbox(
         "Hiring impact section",
         key="add_hiring_section",
-        help="If checked, the blog will include at least one section covering the impact on hiring.",
     )
 
-    st.markdown("---")
-    st.markdown("##### SEO")
-    st.text_area("Keywords", key="keywords_text", height=120, placeholder="One keyword per line")
-
-    st.markdown("##### Research")
-    st.text_area("Key facts & figures", key="facts_text", height=120, placeholder="Statistical data, findings, facts...")
-    st.text_area("Quotes & insights", key="quotes_text", height=120, placeholder="Expert quotes, insights, perspectives...")
-    st.text_area("Supporting notes", key="research_notes", height=120, placeholder="Optional extra context")
-
-    st.markdown("---")
-    st.markdown("##### Supporting document")
-    uploaded = st.file_uploader(
-        "Upload PDF, DOCX, TXT, CSV, XLSX",
-        type=["pdf", "docx", "txt", "csv", "xlsx", "xls"],
-        key="supporting_file_uploader",
+    st.markdown("<div class='sidebar-label'>History</div>", unsafe_allow_html=True)
+    history_value = clean_text(
+        st.session_state.topic
+        or st.session_state.title
+        or st.session_state.ai_outline_title
+        or "No topic yet"
+    )
+    st.markdown(
+        f"<div class='history-chip'>{history_value}</div>",
+        unsafe_allow_html=True,
     )
 
-    if uploaded is not None:
-        if st.button("Extract document insights", use_container_width=True):
+st.markdown("<div class='main-wrap'>", unsafe_allow_html=True)
+st.markdown("<div class='page-title'>Create a Blog Post</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='page-subtitle'>Generate SEO-optimised articles with AI assistance</div>",
+    unsafe_allow_html=True,
+)
+
+st.markdown("<div class='form-card'>", unsafe_allow_html=True)
+
+st.text_input(
+    "Blog Title / Topic",
+    key="topic",
+    placeholder="why recruitment marketing matters",
+)
+
+top_row_col1, top_row_col2 = st.columns([5, 1.2])
+with top_row_col2:
+    if st.button("AI Title", use_container_width=True):
+        if st.session_state.topic.strip() and not st.session_state.title.strip():
+            st.session_state.title = st.session_state.topic.strip()
+            st.rerun()
+
+facts_col, quotes_col = st.columns(2)
+with facts_col:
+    st.text_area(
+        "Key Facts & Figures",
+        key="facts_text",
+        height=105,
+        placeholder="Statistical data, research findings, important facts...",
+    )
+
+with quotes_col:
+    st.text_area(
+        "Quotes & Insights",
+        key="quotes_text",
+        height=105,
+        placeholder="Expert quotes, industry insights, original perspectives...",
+    )
+
+st.text_area(
+    "Supporting Notes",
+    key="research_notes",
+    height=80,
+    placeholder="Optional additional research notes...",
+)
+
+st.markdown("#### Supporting Document")
+uploaded = st.file_uploader(
+    "Upload supporting document",
+    type=["pdf", "docx", "txt", "csv", "xlsx", "xls"],
+    key="supporting_file_uploader_main",
+    label_visibility="collapsed",
+)
+
+if uploaded is not None:
+    extract_col1, extract_col2 = st.columns([1.4, 4])
+    with extract_col1:
+        if st.button("Extract insights", use_container_width=True):
             try:
                 raw_text = extract_text_from_upload(uploaded.name, uploaded.getvalue())
                 st.session_state.document_text = raw_text
@@ -1134,452 +1281,62 @@ with st.sidebar:
                 st.success("Document insights extracted.")
             except Exception as exc:
                 st.error(f"Could not process upload: {exc}")
+    with extract_col2:
+        st.caption(uploaded.name)
 
-    if st.session_state.topic.strip():
-        st.markdown("---")
-        st.markdown("##### History")
-        st.markdown(
-            f"<div class='history-chip'>{clean_text(st.session_state.topic)}</div>",
-            unsafe_allow_html=True,
-        )
+st.markdown("<div class='big-primary'>", unsafe_allow_html=True)
 
-st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+if st.session_state.blog_mode == "Writer Version":
+    if st.button("Generate Blog Article", type="primary", use_container_width=True):
+        try:
+            inputs = current_inputs()
+            if not inputs["topic"]:
+                st.error("Please enter a topic first.")
+            elif not inputs["keywords"]:
+                suggested_keywords = suggest_seo_keywords(inputs)
+                st.session_state.seo_keyword_suggestions = suggested_keywords
+                st.session_state.selected_seo_keywords = []
+                st.session_state.show_seo_keyword_dialog = True
+                st.rerun()
+            else:
+                run_outline_generation()
+        except Exception as exc:
+            st.error(f"Could not generate outline: {exc}")
+else:
+    if st.button("Generate Blog Article", type="primary", use_container_width=True):
+        try:
+            inputs = current_inputs()
+            topic_seed = clean_text(inputs["topic"] or inputs["title"] or st.session_state.ai_outline_title)
+            if not topic_seed:
+                st.error("Please enter a topic first.")
+            elif not inputs["keywords"]:
+                suggested_keywords = suggest_seo_keywords(inputs)
+                st.session_state.seo_keyword_suggestions = suggested_keywords
+                st.session_state.selected_seo_keywords = []
+                st.session_state.show_seo_keyword_dialog = True
+                st.rerun()
+            else:
+                run_ai_outline_generation()
+        except Exception as exc:
+            st.error(f"Could not generate AI-friendly outline: {exc}")
 
-hero_left, hero_right = st.columns([3.4, 1.2])
+st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-with hero_left:
-    st.markdown(
-        f"""
-        <div class="hero-card">
-            <div class="hero-title">Create a Blog Post</div>
-            <div class="hero-subtitle">
-                Generate clean, SEO-aware articles with a simpler writing workflow.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with hero_right:
-    current_mode_label = "Writer Version" if st.session_state.blog_mode == "Writer Version" else "AI Friendly"
-    st.markdown(
-        f"""
-        <div class="hero-card">
-            <div class="section-label">Current mode</div>
-            <div class="stat-pill">{current_mode_label}</div>
-            <div class="stat-pill">{st.session_state.language}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("<div style='height: 0.8rem;'></div>", unsafe_allow_html=True)
-
-mode_col1, mode_col2 = st.columns(2)
-with mode_col1:
-    st.markdown(
-        f"""
-        <div class="mode-mini {'active' if st.session_state.blog_mode == 'Writer Version' else ''}">
-            <div class="mode-mini-title">Writer Version</div>
-            <div class="mode-mini-copy">
-                Outline-first workflow with section-by-section writing and revision control.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with mode_col2:
-    st.markdown(
-        f"""
-        <div class="mode-mini {'active' if st.session_state.blog_mode == 'AI Friendly' else ''}">
-            <div class="mode-mini-title">AI Friendly</div>
-            <div class="mode-mini-copy">
-                Faster full-draft generation using answer-led, skimmable blog structure.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
-
-main_left, main_right = st.columns([1.6, 1])
-
-with main_left:
+if (
+    st.session_state.outline
+    or st.session_state.ai_outline
+    or st.session_state.ai_friendly_draft
+):
     st.markdown(
         """
-        <div class="content-card">
-            <div class="section-label">Main workspace</div>
+        <div class="result-card">
+            <div class="result-title">Article generated</div>
+            <div class="result-copy">Review your content below. You can revise or download as DOCX or PDF.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    if st.session_state.blog_mode == "Writer Version":
-        st.subheader("Outline generation")
-
-        action_col1, action_col2 = st.columns([1.2, 4])
-        with action_col1:
-            if st.button("Generate outline", type="primary", use_container_width=True):
-                try:
-                    inputs = current_inputs()
-                    if not inputs["topic"]:
-                        st.error("Please enter a topic first.")
-                    elif not inputs["keywords"]:
-                        suggested_keywords = suggest_seo_keywords(inputs)
-                        st.session_state.seo_keyword_suggestions = suggested_keywords
-                        st.session_state.selected_seo_keywords = []
-                        st.session_state.show_seo_keyword_dialog = True
-                        st.rerun()
-                    else:
-                        run_outline_generation()
-                except Exception as exc:
-                    st.error(f"Could not generate outline: {exc}")
-        with action_col2:
-            st.caption("Generate a clean article structure first, then edit and expand each section.")
-
-        verified = st.session_state.get("verified_evidence", {}) or {}
-        if verified.get("verified_points") or verified.get("verified_quotes"):
-            with st.expander("Verified evidence used for planning", expanded=False):
-                if verified.get("verified_points"):
-                    st.markdown("**Verified points**")
-                    for item in verified.get("verified_points", [])[:10]:
-                        st.write(f"- {item}")
-                if verified.get("verified_quotes"):
-                    st.markdown("**Verified quotes**")
-                    for item in verified.get("verified_quotes", [])[:6]:
-                        st.write(f"- {item}")
-                if verified.get("unsupported_points"):
-                    st.markdown("**Unsupported or weak points**")
-                    for item in verified.get("unsupported_points", [])[:6]:
-                        st.write(f"- {item}")
-
-        if st.session_state.document_insights:
-            with st.expander("Document insights", expanded=False):
-                for item in st.session_state.document_insights:
-                    st.write(f"- {item}")
-
-        if st.session_state.outline:
-            st.markdown("<div style='height:0.5rem;'></div>", unsafe_allow_html=True)
-            st.text_input("Final article title", key="outline_title")
-            st.caption("Edit headings, objectives, and key points before generating the article.")
-
-            with st.form("add_section_form", clear_on_submit=True):
-                add_prompt_col, add_button_col = st.columns([4, 1.2])
-                with add_prompt_col:
-                    new_section_prompt = st.text_input(
-                        "Add section with a one-line prompt",
-                        key="new_section_prompt",
-                        placeholder="e.g. Add a section on common mistakes teams should avoid",
-                    )
-                with add_button_col:
-                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
-
-                if add_section_submitted:
-                    one_liner = clean_text(new_section_prompt)
-                    if not one_liner:
-                        st.error("Enter a one-line prompt for the new section.")
-                    else:
-                        try:
-                            new_section = generate_new_section_from_prompt(one_liner)
-                        except Exception:
-                            new_section = build_manual_section(one_liner)
-
-                        st.session_state.outline.append(new_section)
-                        normalise_outline()
-                        st.session_state.sections_workspace_ready = True
-                        st.success("Section added.")
-                        st.rerun()
-
-            updated_outline: list[dict[str, Any]] = []
-            delete_section_id: str | None = None
-            for idx, section in enumerate(st.session_state.outline):
-                with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
-                    heading = st.text_input(
-                        f"Heading {idx + 1}",
-                        value=clean_text(section.get("heading", "")),
-                        key=f"heading_{idx}",
-                    )
-
-                    objective_value = clean_text(section.get("objective", ""))
-                    objective_height = calc_text_area_height(
-                        objective_value,
-                        min_height=120,
-                        line_px=28,
-                        extra_lines=3,
-                    )
-                    objective = st.text_area(
-                        f"Objective {idx + 1}",
-                        value=objective_value,
-                        key=f"objective_{idx}",
-                        height=objective_height,
-                    )
-
-                    key_points_value = to_bullet_lines(section.get("keyPoints", []))
-                    key_points_height = calc_text_area_height(
-                        key_points_value,
-                        min_height=150,
-                        line_px=30,
-                        extra_lines=3,
-                    )
-                    key_points_text = st.text_area(
-                        f"Key points {idx + 1}",
-                        value=key_points_value,
-                        key=f"keypoints_{idx}",
-                        height=key_points_height,
-                    )
-
-                    section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
-                    with section_controls_col1:
-                        suggested_words = st.number_input(
-                            f"Suggested words {idx + 1}",
-                            min_value=80,
-                            max_value=800,
-                            value=int(section.get("suggestedWords", 180)),
-                            step=20,
-                            key=f"words_{idx}",
-                        )
-                    with section_controls_col2:
-                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                        if st.button("Delete section", key=f"delete_outline_{section['id']}", use_container_width=True):
-                            delete_section_id = str(section["id"])
-
-                    updated_outline.append(
-                        {
-                            "id": section.get("id", f"s{idx+1}"),
-                            "heading": clean_text(heading),
-                            "objective": clean_text(objective),
-                            "keyPoints": from_bullet_lines(key_points_text),
-                            "suggestedWords": int(suggested_words),
-                        }
-                    )
-
-            st.session_state.outline = updated_outline
-            normalise_outline()
-
-            if delete_section_id:
-                delete_section(delete_section_id)
-                st.success("Section deleted.")
-                st.rerun()
-
-            generate_sections_col1, generate_sections_col2 = st.columns([1.4, 3])
-            with generate_sections_col1:
-                if st.button("Generate sections", use_container_width=True):
-                    try:
-                        st.session_state.sections_workspace_ready = True
-                        inputs = current_inputs()
-                        title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
-                        generated_any = generate_missing_sections(inputs, title)
-                        if generated_any:
-                            st.session_state["generation_success_message"] = "Generated all sections."
-                        else:
-                            st.session_state["generation_success_message"] = "All sections were already generated."
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Failed while generating sections: {exc}")
-            with generate_sections_col2:
-                st.caption("This generates every missing section and opens them in the editor below.")
-
-    else:
-        st.subheader("AI-friendly outline")
-        st.caption("Create the structure first, edit it if needed, then generate the full blog.")
-
-        ai_outline_action_col1, ai_outline_action_col2 = st.columns([1.6, 3])
-        with ai_outline_action_col1:
-            if st.button("Generate AI-friendly outline", type="primary", use_container_width=True):
-                try:
-                    inputs = current_inputs()
-                    topic_seed = clean_text(inputs["topic"] or inputs["title"] or st.session_state.ai_outline_title)
-                    if not topic_seed:
-                        st.error("Please enter a topic first.")
-                    elif not inputs["keywords"]:
-                        suggested_keywords = suggest_seo_keywords(inputs)
-                        st.session_state.seo_keyword_suggestions = suggested_keywords
-                        st.session_state.selected_seo_keywords = []
-                        st.session_state.show_seo_keyword_dialog = True
-                        st.rerun()
-                    else:
-                        run_ai_outline_generation()
-                except Exception as exc:
-                    st.error(f"Could not generate AI-friendly outline: {exc}")
-        with ai_outline_action_col2:
-            st.caption("This keeps the workflow simple while still giving you control before full draft generation.")
-
-        verified = st.session_state.get("verified_evidence", {}) or {}
-        if verified.get("verified_points") or verified.get("verified_quotes"):
-            with st.expander("Verified evidence available to the AI-friendly draft", expanded=False):
-                if verified.get("verified_points"):
-                    st.markdown("**Verified points**")
-                    for item in verified.get("verified_points", [])[:10]:
-                        st.write(f"- {item}")
-                if verified.get("verified_quotes"):
-                    st.markdown("**Verified quotes**")
-                    for item in verified.get("verified_quotes", [])[:6]:
-                        st.write(f"- {item}")
-                if verified.get("unsupported_points"):
-                    st.markdown("**Unsupported or weak points**")
-                    for item in verified.get("unsupported_points", [])[:6]:
-                        st.write(f"- {item}")
-
-        if st.session_state.document_insights:
-            with st.expander("Document insights", expanded=False):
-                for item in st.session_state.document_insights:
-                    st.write(f"- {item}")
-
-        if st.session_state.ai_outline:
-            st.text_input("Final AI-friendly article title", key="ai_outline_title")
-            st.caption("Edit headings, objectives, and key points before generating the blog.")
-
-            with st.form("add_ai_section_form", clear_on_submit=True):
-                add_prompt_col, add_button_col = st.columns([4, 1.2])
-                with add_prompt_col:
-                    ai_new_section_prompt = st.text_input(
-                        "Add section with a one-line prompt",
-                        key="ai_new_section_prompt",
-                        placeholder="e.g. Add a section answering how teams can measure success",
-                    )
-                with add_button_col:
-                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    add_ai_section_submitted = st.form_submit_button("Add section", use_container_width=True)
-
-                if add_ai_section_submitted:
-                    one_liner = clean_text(ai_new_section_prompt)
-                    if not one_liner:
-                        st.error("Enter a one-line prompt for the new section.")
-                    else:
-                        try:
-                            new_section = generate_new_ai_section_from_prompt(one_liner)
-                        except Exception:
-                            new_section = build_manual_section(one_liner)
-
-                        st.session_state.ai_outline.append(new_section)
-                        normalise_ai_outline()
-                        st.success("Section added.")
-                        st.rerun()
-
-            updated_ai_outline: list[dict[str, Any]] = []
-            delete_ai_section_id_value: str | None = None
-            for idx, section in enumerate(st.session_state.ai_outline):
-                with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
-                    heading = st.text_input(
-                        f"AI heading {idx + 1}",
-                        value=clean_text(section.get("heading", "")),
-                        key=f"ai_heading_{idx}",
-                    )
-
-                    objective_value = clean_text(section.get("objective", ""))
-                    objective_height = calc_text_area_height(
-                        objective_value,
-                        min_height=120,
-                        line_px=28,
-                        extra_lines=3,
-                    )
-                    objective = st.text_area(
-                        f"AI objective {idx + 1}",
-                        value=objective_value,
-                        key=f"ai_objective_{idx}",
-                        height=objective_height,
-                    )
-
-                    key_points_value = to_bullet_lines(section.get("keyPoints", []))
-                    key_points_height = calc_text_area_height(
-                        key_points_value,
-                        min_height=150,
-                        line_px=30,
-                        extra_lines=3,
-                    )
-                    key_points_text = st.text_area(
-                        f"AI key points {idx + 1}",
-                        value=key_points_value,
-                        key=f"ai_keypoints_{idx}",
-                        height=key_points_height,
-                    )
-
-                    section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
-                    with section_controls_col1:
-                        suggested_words = st.number_input(
-                            f"AI suggested words {idx + 1}",
-                            min_value=80,
-                            max_value=800,
-                            value=int(section.get("suggestedWords", 180)),
-                            step=20,
-                            key=f"ai_words_{idx}",
-                        )
-                    with section_controls_col2:
-                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                        if st.button("Delete section", key=f"delete_ai_outline_{section['id']}", use_container_width=True):
-                            delete_ai_section_id_value = str(section["id"])
-
-                    updated_ai_outline.append(
-                        {
-                            "id": section.get("id", f"s{idx+1}"),
-                            "heading": clean_text(heading),
-                            "objective": clean_text(objective),
-                            "keyPoints": from_bullet_lines(key_points_text),
-                            "suggestedWords": int(suggested_words),
-                        }
-                    )
-
-            st.session_state.ai_outline = updated_ai_outline
-            normalise_ai_outline()
-
-            if delete_ai_section_id_value:
-                delete_ai_section(delete_ai_section_id_value)
-                st.success("Section deleted.")
-                st.rerun()
-
-            generate_blog_col1, generate_blog_col2 = st.columns([1.6, 3])
-            with generate_blog_col1:
-                if st.button("Generate AI-friendly blog", type="primary", use_container_width=True):
-                    try:
-                        run_ai_friendly_generation()
-                    except Exception as exc:
-                        st.error(f"Could not generate AI-friendly blog: {exc}")
-            with generate_blog_col2:
-                st.caption("This uses the edited outline above to generate one complete blog draft.")
-
-with main_right:
-    st.markdown(
-        """
-        <div class="soft-card">
-            <div class="section-label">Quick summary</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    input_title = clean_text(
-        st.session_state.title
-        or st.session_state.ai_outline_title
-        or st.session_state.outline_title
-        or st.session_state.topic
-    ) or "Not set yet"
-
-    st.markdown(f"**Topic / title**  \n{input_title}")
-    st.markdown(f"**Audience**  \n{clean_text(st.session_state.audience) or 'Not set'}")
-    st.markdown(f"**Tone**  \n{clean_text(st.session_state.tone)}")
-    st.markdown(f"**Language**  \n{clean_text(st.session_state.language)}")
-    st.markdown(f"**Word count**  \n{int(st.session_state.target_words)}")
-
-    keyword_count = len(lines_to_list(st.session_state.keywords_text))
-    facts_count = len(lines_to_list(st.session_state.facts_text))
-    quotes_count = len(lines_to_list(st.session_state.quotes_text))
-    insights_count = len(st.session_state.document_insights)
-
-    st.markdown("<div style='height: 0.4rem;'></div>", unsafe_allow_html=True)
-    st.info(
-        f"Keywords: {keyword_count}  |  Facts: {facts_count}  |  Quotes: {quotes_count}  |  Insights: {insights_count}"
-    )
-
-    if st.session_state.blog_mode == "Writer Version":
-        st.markdown(f"**Outline sections**  \n{len(st.session_state.outline)}")
-        ready_text = "Ready" if st.session_state.sections_workspace_ready else "Not ready yet"
-        st.markdown(f"**Section workspace**  \n{ready_text}")
-    else:
-        st.markdown(f"**AI outline sections**  \n{len(st.session_state.ai_outline)}")
-        draft_status = "Generated" if st.session_state.ai_friendly_draft.strip() else "Not generated yet"
-        st.markdown(f"**Draft status**  \n{draft_status}")
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -1587,12 +1344,152 @@ if st.session_state.get("generation_success_message"):
 if st.session_state.get("revision_success_message"):
     st.success(st.session_state.pop("revision_success_message"))
 
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+verified = st.session_state.get("verified_evidence", {}) or {}
+if verified.get("verified_points") or verified.get("verified_quotes"):
+    with st.expander("Verified evidence", expanded=False):
+        if verified.get("verified_points"):
+            st.markdown("**Verified points**")
+            for item in verified.get("verified_points", [])[:10]:
+                st.write(f"- {item}")
+        if verified.get("verified_quotes"):
+            st.markdown("**Verified quotes**")
+            for item in verified.get("verified_quotes", [])[:6]:
+                st.write(f"- {item}")
+        if verified.get("unsupported_points"):
+            st.markdown("**Unsupported or weak points**")
+            for item in verified.get("unsupported_points", [])[:6]:
+                st.write(f"- {item}")
+
+if st.session_state.document_insights:
+    with st.expander("Document insights", expanded=False):
+        for item in st.session_state.document_insights:
+            st.write(f"- {item}")
 
 if st.session_state.blog_mode == "Writer Version":
-    st.subheader("Article sections")
+    if st.session_state.outline:
+        st.markdown("## Outline")
+        st.text_input("Final article title", key="outline_title")
+
+        with st.form("add_section_form", clear_on_submit=True):
+            add_prompt_col, add_button_col = st.columns([4, 1.2])
+            with add_prompt_col:
+                new_section_prompt = st.text_input(
+                    "Add section with a one-line prompt",
+                    key="new_section_prompt",
+                    placeholder="e.g. Add a section on implementation mistakes teams should avoid",
+                )
+            with add_button_col:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                add_section_submitted = st.form_submit_button("Add section", use_container_width=True)
+
+            if add_section_submitted:
+                one_liner = clean_text(new_section_prompt)
+                if not one_liner:
+                    st.error("Enter a one-line prompt for the new section.")
+                else:
+                    try:
+                        new_section = generate_new_section_from_prompt(one_liner)
+                    except Exception:
+                        new_section = build_manual_section(one_liner)
+
+                    st.session_state.outline.append(new_section)
+                    normalise_outline()
+                    st.session_state.sections_workspace_ready = True
+                    st.success("Section added.")
+                    st.rerun()
+
+        updated_outline: list[dict[str, Any]] = []
+        delete_section_id: str | None = None
+        for idx, section in enumerate(st.session_state.outline):
+            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
+                heading = st.text_input(
+                    f"Heading {idx + 1}",
+                    value=clean_text(section.get("heading", "")),
+                    key=f"heading_{idx}",
+                )
+
+                objective_value = clean_text(section.get("objective", ""))
+                objective_height = calc_text_area_height(
+                    objective_value,
+                    min_height=120,
+                    line_px=28,
+                    extra_lines=3,
+                )
+                objective = st.text_area(
+                    f"Objective {idx + 1}",
+                    value=objective_value,
+                    key=f"objective_{idx}",
+                    height=objective_height,
+                )
+
+                key_points_value = to_bullet_lines(section.get("keyPoints", []))
+                key_points_height = calc_text_area_height(
+                    key_points_value,
+                    min_height=150,
+                    line_px=30,
+                    extra_lines=3,
+                )
+                key_points_text = st.text_area(
+                    f"Key points {idx + 1}",
+                    value=key_points_value,
+                    key=f"keypoints_{idx}",
+                    height=key_points_height,
+                )
+
+                section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
+                with section_controls_col1:
+                    suggested_words = st.number_input(
+                        f"Suggested words {idx + 1}",
+                        min_value=80,
+                        max_value=800,
+                        value=int(section.get("suggestedWords", 180)),
+                        step=20,
+                        key=f"words_{idx}",
+                    )
+                with section_controls_col2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("Delete section", key=f"delete_outline_{section['id']}", use_container_width=True):
+                        delete_section_id = str(section["id"])
+
+                updated_outline.append(
+                    {
+                        "id": section.get("id", f"s{idx+1}"),
+                        "heading": clean_text(heading),
+                        "objective": clean_text(objective),
+                        "keyPoints": from_bullet_lines(key_points_text),
+                        "suggestedWords": int(suggested_words),
+                    }
+                )
+
+        st.session_state.outline = updated_outline
+        normalise_outline()
+
+        if delete_section_id:
+            delete_section(delete_section_id)
+            st.success("Section deleted.")
+            st.rerun()
+
+        generate_sections_col1, generate_sections_col2 = st.columns([1.4, 3])
+        with generate_sections_col1:
+            if st.button("Generate sections", use_container_width=True):
+                try:
+                    st.session_state.sections_workspace_ready = True
+                    inputs = current_inputs()
+                    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+                    generated_any = generate_missing_sections(inputs, title)
+                    if generated_any:
+                        st.session_state["generation_success_message"] = "Generated all sections."
+                    else:
+                        st.session_state["generation_success_message"] = "All sections were already generated."
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed while generating sections: {exc}")
+        with generate_sections_col2:
+            st.caption("This generates the article section by section.")
 
     if st.session_state.outline and st.session_state.sections_workspace_ready:
+        st.markdown("## Article sections")
+
         inputs = current_inputs()
         title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
 
@@ -1710,19 +1607,122 @@ if st.session_state.blog_mode == "Writer Version":
             st.success("Section deleted.")
             st.rerun()
 
-    else:
-        if st.session_state.outline:
-            st.info("Review the outline, then click 'Generate sections' to open the section editors here.")
-        else:
-            st.info("Generate an outline first to start writing sections.")
-
 else:
-    st.subheader("AI-friendly full draft")
+    if st.session_state.ai_outline:
+        st.markdown("## AI-friendly outline")
+        st.text_input("Final AI-friendly article title", key="ai_outline_title")
 
-    if st.session_state.ai_outline and not st.session_state.ai_friendly_draft:
-        st.info("Review the AI-friendly outline above, then generate the full blog.")
+        with st.form("add_ai_section_form", clear_on_submit=True):
+            add_prompt_col, add_button_col = st.columns([4, 1.2])
+            with add_prompt_col:
+                ai_new_section_prompt = st.text_input(
+                    "Add section with a one-line prompt",
+                    key="ai_new_section_prompt",
+                    placeholder="e.g. Add a section answering how teams can measure results",
+                )
+            with add_button_col:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                add_ai_section_submitted = st.form_submit_button("Add section", use_container_width=True)
+
+            if add_ai_section_submitted:
+                one_liner = clean_text(ai_new_section_prompt)
+                if not one_liner:
+                    st.error("Enter a one-line prompt for the new section.")
+                else:
+                    try:
+                        new_section = generate_new_ai_section_from_prompt(one_liner)
+                    except Exception:
+                        new_section = build_manual_section(one_liner)
+
+                    st.session_state.ai_outline.append(new_section)
+                    normalise_ai_outline()
+                    st.success("Section added.")
+                    st.rerun()
+
+        updated_ai_outline: list[dict[str, Any]] = []
+        delete_ai_section_id_value: str | None = None
+        for idx, section in enumerate(st.session_state.ai_outline):
+            with st.expander(f"Section {idx + 1}: {section.get('heading', 'Untitled')}", expanded=(idx == 0)):
+                heading = st.text_input(
+                    f"AI heading {idx + 1}",
+                    value=clean_text(section.get("heading", "")),
+                    key=f"ai_heading_{idx}",
+                )
+
+                objective_value = clean_text(section.get("objective", ""))
+                objective_height = calc_text_area_height(
+                    objective_value,
+                    min_height=120,
+                    line_px=28,
+                    extra_lines=3,
+                )
+                objective = st.text_area(
+                    f"AI objective {idx + 1}",
+                    value=objective_value,
+                    key=f"ai_objective_{idx}",
+                    height=objective_height,
+                )
+
+                key_points_value = to_bullet_lines(section.get("keyPoints", []))
+                key_points_height = calc_text_area_height(
+                    key_points_value,
+                    min_height=150,
+                    line_px=30,
+                    extra_lines=3,
+                )
+                key_points_text = st.text_area(
+                    f"AI key points {idx + 1}",
+                    value=key_points_value,
+                    key=f"ai_keypoints_{idx}",
+                    height=key_points_height,
+                )
+
+                section_controls_col1, section_controls_col2 = st.columns([1.2, 1])
+                with section_controls_col1:
+                    suggested_words = st.number_input(
+                        f"AI suggested words {idx + 1}",
+                        min_value=80,
+                        max_value=800,
+                        value=int(section.get("suggestedWords", 180)),
+                        step=20,
+                        key=f"ai_words_{idx}",
+                    )
+                with section_controls_col2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("Delete section", key=f"delete_ai_outline_{section['id']}", use_container_width=True):
+                        delete_ai_section_id_value = str(section["id"])
+
+                updated_ai_outline.append(
+                    {
+                        "id": section.get("id", f"s{idx+1}"),
+                        "heading": clean_text(heading),
+                        "objective": clean_text(objective),
+                        "keyPoints": from_bullet_lines(key_points_text),
+                        "suggestedWords": int(suggested_words),
+                    }
+                )
+
+        st.session_state.ai_outline = updated_ai_outline
+        normalise_ai_outline()
+
+        if delete_ai_section_id_value:
+            delete_ai_section(delete_ai_section_id_value)
+            st.success("Section deleted.")
+            st.rerun()
+
+        generate_blog_col1, generate_blog_col2 = st.columns([1.7, 3])
+        with generate_blog_col1:
+            if st.button("Generate AI-friendly blog", type="primary", use_container_width=True):
+                try:
+                    run_ai_friendly_generation()
+                except Exception as exc:
+                    st.error(f"Could not generate AI-friendly blog: {exc}")
+        with generate_blog_col2:
+            st.caption("This uses the edited outline above to create the full article.")
 
     if st.session_state.ai_friendly_draft:
+        st.markdown("## AI-friendly full draft")
+
         if not st.session_state.ai_friendly_draft_editor:
             st.session_state.ai_friendly_draft_editor = st.session_state.ai_friendly_draft
 
@@ -1751,12 +1751,9 @@ else:
                 except Exception as exc:
                     st.error(f"Regeneration failed: {exc}")
         with ai_action_col2:
-            st.caption("You can edit the draft directly before export.")
-    else:
-        st.info("Generate the AI-friendly outline first, then generate the full blog.")
+            st.caption("You can edit the draft directly before exporting.")
 
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
-st.subheader("Export")
+st.markdown("## Export")
 
 if st.session_state.blog_mode == "Writer Version":
     if st.session_state.outline:
@@ -1785,14 +1782,13 @@ if st.session_state.blog_mode == "Writer Version":
             if item["content"].strip()
         )
 
-        preview_height = calc_text_area_height(
-            combined_markdown,
-            min_height=500,
-            line_px=26,
-            extra_lines=8,
-        )
-
-        with st.expander("Preview article before export", expanded=False):
+        with st.expander("Preview article", expanded=False):
+            preview_height = calc_text_area_height(
+                combined_markdown,
+                min_height=500,
+                line_px=26,
+                extra_lines=8,
+            )
             st.text_area("Combined article preview", value=combined_markdown, height=preview_height)
 
         export_col1, export_col2 = st.columns(2)
@@ -1833,14 +1829,13 @@ else:
             if item["content"].strip()
         )
 
-        preview_height = calc_text_area_height(
-            preview_markdown,
-            min_height=500,
-            line_px=26,
-            extra_lines=8,
-        )
-
-        with st.expander("Preview article before export", expanded=False):
+        with st.expander("Preview article", expanded=False):
+            preview_height = calc_text_area_height(
+                preview_markdown,
+                min_height=500,
+                line_px=26,
+                extra_lines=8,
+            )
             st.text_area("Combined article preview", value=preview_markdown, height=preview_height)
 
         export_col1, export_col2 = st.columns(2)
