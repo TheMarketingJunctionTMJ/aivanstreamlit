@@ -84,6 +84,7 @@ def init_state() -> None:
         "ai_full_blog_revision_prompt": "",
         "pending_full_blog_revision": None,
         "pending_ai_full_blog_revision": None,
+        "processing_message": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -903,6 +904,84 @@ def switch_blog_mode(mode: str) -> None:
     st.session_state.blog_mode = mode
 
 
+def set_processing(message: str = "Processing your blog...") -> None:
+    st.session_state.processing_message = clean_text(message) or "Processing your blog..."
+
+
+def clear_processing() -> None:
+    st.session_state.processing_message = ""
+
+
+def render_processing_overlay() -> None:
+    message = clean_text(st.session_state.get("processing_message", ""))
+    if not message:
+        return
+
+    st.markdown(
+        f"""
+        <style>
+        .processing-overlay-backdrop {{
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }}
+
+        .processing-overlay-modal {{
+            width: min(560px, 92vw);
+            background: white;
+            border-radius: 28px;
+            padding: 2rem 1.8rem;
+            box-shadow: 0 28px 70px rgba(15, 23, 42, 0.28);
+            text-align: center;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }}
+
+        .processing-spinner {{
+            width: 78px;
+            height: 78px;
+            margin: 0 auto 1.2rem auto;
+            border: 7px solid #dbeafe;
+            border-top: 7px solid #1368e8;
+            border-radius: 50%;
+            animation: processing-spin 0.9s linear infinite;
+        }}
+
+        .processing-title {{
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 0.35rem;
+        }}
+
+        .processing-copy {{
+            font-size: 1rem;
+            color: #64748b;
+            line-height: 1.5;
+        }}
+
+        @keyframes processing-spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        </style>
+
+        <div class="processing-overlay-backdrop">
+            <div class="processing-overlay-modal">
+                <div class="processing-spinner"></div>
+                <div class="processing-title">Processing...</div>
+                <div class="processing-copy">{message}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_mode_controls() -> None:
     st.markdown("### Writing mode")
     col1, col2 = st.columns(2)
@@ -931,17 +1010,28 @@ apply_pending_content_updates()
 normalise_outline()
 normalise_ai_outline()
 
+render_processing_overlay()
+
 if st.session_state.get("pending_outline_generation"):
-    with st.spinner("Generating outline..."):
-        run_outline_generation()
+    try:
+        with st.spinner("Generating outline..."):
+            run_outline_generation()
+    finally:
+        clear_processing()
 
 if st.session_state.get("pending_ai_outline_generation"):
-    with st.spinner("Generating AI-friendly outline..."):
-        run_ai_outline_generation()
+    try:
+        with st.spinner("Generating AI-friendly outline..."):
+            run_ai_outline_generation()
+    finally:
+        clear_processing()
 
 if st.session_state.get("pending_ai_friendly_generation"):
-    with st.spinner("Generating AI-friendly blog..."):
-        run_ai_friendly_generation()
+    try:
+        with st.spinner("Generating AI-friendly blog..."):
+            run_ai_friendly_generation()
+    finally:
+        clear_processing()
 
 if st.session_state.show_seo_keyword_dialog:
     @st.dialog("Choose recommended SEO keywords")
@@ -998,8 +1088,10 @@ if st.session_state.show_seo_keyword_dialog:
                     st.session_state.selected_seo_keywords = selected_keywords
                     st.session_state.show_seo_keyword_dialog = False
                     if st.session_state.blog_mode == "Writer Version":
+                        set_processing("Generating your outline and preparing the blog structure...")
                         st.session_state.pending_outline_generation = True
                     else:
+                        set_processing("Generating your AI-friendly outline...")
                         st.session_state.pending_ai_outline_generation = True
                     st.rerun()
 
@@ -1369,6 +1461,8 @@ if uploaded is not None:
     with extract_col1:
         if st.button("Extract insights", use_container_width=True):
             try:
+                set_processing("Extracting insights from your uploaded document...")
+                render_processing_overlay()
                 raw_text = extract_text_from_upload(uploaded.name, uploaded.getvalue())
                 st.session_state.document_text = raw_text
                 response = generate_text(
@@ -1383,8 +1477,10 @@ if uploaded is not None:
                 parsed = parse_json_response(response)
                 st.session_state.document_insights = parsed.get("insights", [])[:12]
                 st.session_state.quoted_lines = parsed.get("quoted_lines", [])[:12]
+                clear_processing()
                 st.success("Document insights extracted.")
             except Exception as exc:
+                clear_processing()
                 st.error(f"Could not process upload: {exc}")
     with extract_col2:
         st.caption(uploaded.name)
@@ -1404,8 +1500,11 @@ if st.session_state.blog_mode == "Writer Version":
                 st.session_state.show_seo_keyword_dialog = True
                 st.rerun()
             else:
-                run_outline_generation()
+                set_processing("Generating your outline and preparing the blog structure...")
+                st.session_state.pending_outline_generation = True
+                st.rerun()
         except Exception as exc:
+            clear_processing()
             st.error(f"Could not generate outline: {exc}")
 else:
     if st.button("Generate Blog Article", type="primary", use_container_width=True):
@@ -1421,8 +1520,11 @@ else:
                 st.session_state.show_seo_keyword_dialog = True
                 st.rerun()
             else:
-                run_ai_outline_generation()
+                set_processing("Generating your AI-friendly outline...")
+                st.session_state.pending_ai_outline_generation = True
+                st.rerun()
         except Exception as exc:
+            clear_processing()
             st.error(f"Could not generate AI-friendly outline: {exc}")
 
 st.markdown("</div>", unsafe_allow_html=True)
@@ -1819,8 +1921,11 @@ else:
         with generate_blog_col1:
             if st.button("Generate AI-friendly blog", type="primary", use_container_width=True):
                 try:
-                    run_ai_friendly_generation()
+                    set_processing("Writing your full AI-friendly blog draft...")
+                    st.session_state.pending_ai_friendly_generation = True
+                    st.rerun()
                 except Exception as exc:
+                    clear_processing()
                     st.error(f"Could not generate AI-friendly blog: {exc}")
         with generate_blog_col2:
             st.caption("This uses the edited outline above to create the full article.")
@@ -1852,8 +1957,11 @@ else:
         with ai_action_col1:
             if st.button("Regenerate AI-friendly blog", use_container_width=True):
                 try:
-                    run_ai_friendly_generation()
+                    set_processing("Regenerating your AI-friendly blog draft...")
+                    st.session_state.pending_ai_friendly_generation = True
+                    st.rerun()
                 except Exception as exc:
+                    clear_processing()
                     st.error(f"Regeneration failed: {exc}")
         with ai_action_col2:
             st.caption("You can edit the draft directly before exporting.")
