@@ -955,7 +955,7 @@ def render_processing_overlay() -> None:
             font-size: 1.6rem;
             font-weight: 800;
             color: #0f172a;
-            margin-bottom: 0.35rem;
+            margin-bottom: 0.25rem;
         }}
 
         .processing-copy {{
@@ -1105,9 +1105,9 @@ st.markdown(
     }
 
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1.5rem;
-        max-width: 1500px;
+        padding-top: 0.6rem;
+        padding-bottom: 1.1rem;
+        max-width: 1440px;
     }
 
     section[data-testid="stSidebar"] {
@@ -1118,7 +1118,7 @@ st.markdown(
     }
 
     section[data-testid="stSidebar"] .block-container {
-        padding-top: 1rem;
+        padding-top: 0.6rem;
         padding-bottom: 0.8rem;
         padding-left: 0.85rem;
         padding-right: 0.85rem;
@@ -1133,7 +1133,7 @@ st.markdown(
         display: flex;
         align-items: flex-start;
         gap: 12px;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.45rem;
     }
 
     .sidebar-icon {
@@ -1170,8 +1170,8 @@ st.markdown(
         color: #64748b;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        margin-top: 0.8rem;
-        margin-bottom: 0.35rem;
+        margin-top: 0.65rem;
+        margin-bottom: 0.25rem;
     }
 
     .history-chip {
@@ -1185,31 +1185,31 @@ st.markdown(
     }
 
     .main-wrap {
-        max-width: 860px;
+        max-width: 820px;
         margin: 0 auto;
-        padding-top: 0.2rem;
+        padding-top: 0.05rem;
     }
 
     .page-title {
-        font-size: 2.15rem;
+        font-size: 2rem;
         font-weight: 760;
         color: #0f172a;
-        margin-bottom: 0.1rem;
+        margin-bottom: 0.45rem;
     }
 
     .page-subtitle {
         font-size: 1.02rem;
         color: #64748b;
-        margin-bottom: 1.35rem;
+        margin-bottom: 0.9rem;
     }
 
     .form-card {
         background: #ffffff;
         border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 22px;
-        padding: 1.3rem 1.35rem 1.1rem 1.35rem;
+        border-radius: 20px;
+        padding: 1.1rem 1.15rem 0.95rem 1.15rem;
         box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
-        margin-bottom: 1.2rem;
+        margin-bottom: 0.95rem;
     }
 
     .result-card {
@@ -1297,28 +1297,15 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    if st.session_state.logo_bytes:
-        st.image(st.session_state.logo_bytes, width=110)
-
-    logo_upload = st.file_uploader(
-        "Logo",
-        type=["png", "jpg", "jpeg", "webp"],
-        key="logo_uploader",
-        label_visibility="collapsed",
-    )
-    if logo_upload is not None:
-        st.session_state.logo_bytes = logo_upload.getvalue()
-        st.session_state.logo_name = logo_upload.name
-
     render_mode_controls()
 
-    st.markdown("<div class='sidebar-label'>Client profile</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-label'>Specify Audience</div>", unsafe_allow_html=True)
     st.text_input(
-        "Client profile",
+        "Specify Audience",
         value="Marketing Junction",
         key="audience",
         label_visibility="collapsed",
-        placeholder="Client or audience",
+        placeholder="Describe your target audience",
     )
 
     st.markdown("<div class='sidebar-label'>Language</div>", unsafe_allow_html=True)
@@ -1404,10 +1391,6 @@ with st.sidebar:
 
 st.markdown("<div class='main-wrap'>", unsafe_allow_html=True)
 st.markdown("<div class='page-title'>Create a Blog Post</div>", unsafe_allow_html=True)
-st.markdown(
-    "<div class='page-subtitle'>Generate SEO-optimised articles with AI assistance</div>",
-    unsafe_allow_html=True,
-)
 
 st.markdown("<div class='form-card'>", unsafe_allow_html=True)
 
@@ -1417,7 +1400,7 @@ st.text_input(
     placeholder="why recruitment marketing matters",
 )
 
-top_row_col1, top_row_col2 = st.columns([5, 1.2])
+top_row_col1, top_row_col2 = st.columns([5, 1.2], gap="small")
 with top_row_col2:
     if st.button("AI Title", use_container_width=True):
         if st.session_state.topic.strip() and not st.session_state.title.strip():
@@ -1442,10 +1425,10 @@ with quotes_col:
     )
 
 st.text_area(
-    "Supporting Notes",
+    "Paste in your copies",
     key="research_notes",
     height=80,
-    placeholder="Optional additional research notes...",
+    placeholder="Paste your content or additional notes here...",
 )
 
 st.markdown("#### Supporting Document")
