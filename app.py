@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import streamlit as st
@@ -96,11 +99,55 @@ def init_state() -> None:
         "writer_export_title_source": "",
         "ai_export_title": "",
         "ai_export_title_source": "",
+        "evidence_cache_key": "",
+        "performance_log": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
+
+
+
+def record_timing(step: str, started_at: float) -> None:
+    elapsed = round(max(0.0, time.perf_counter() - started_at), 2)
+    history = list(st.session_state.get("performance_log", []))
+    history.append({"step": clean_text(step), "seconds": elapsed})
+    st.session_state.performance_log = history[-20:]
+
+
+def evidence_cache_key(inputs: dict[str, Any]) -> str:
+    payload = {
+        "topic": clean_text(inputs.get("topic") or inputs.get("title")),
+        "language": clean_text(inputs.get("language")),
+        "audience": clean_text(inputs.get("audience")),
+        "evidence": build_evidence_bundle(inputs),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def parallel_section_workers(section_count: int) -> int:
+    return max(1, min(3, int(section_count or 1)))
+
+
+def generate_single_section(inputs: dict[str, Any], title: str, section: dict[str, Any], outline_snapshot: list[dict[str, Any]]) -> tuple[str, str]:
+    tighter_section = dict(section)
+    tighter_section["objective"] = (
+        f"{clean_text(section.get('objective', ''))} "
+        f"Write approximately {int(section['suggestedWords'])} words. "
+        f"Do not exceed the target by more than 120 words."
+    ).strip()
+
+    section_text = sanitise_section_content(
+        generate_text(
+            section_system_prompt(inputs["language"]),
+            section_user_prompt(inputs, tighter_section, title, outline_snapshot),
+            max_tokens=section_max_tokens(int(section["suggestedWords"])),
+        ),
+        section.get("heading", ""),
+    )
+    return str(section["id"]), section_text
 
 def lines_to_list(value: str) -> list[str]:
     return [line.strip() for line in str(value).splitlines() if line.strip()]
@@ -572,8 +619,19 @@ def run_evan_light(inputs: dict[str, Any]) -> None:
     if not evidence_text:
         st.session_state.evaluated_evidence = {}
         st.session_state.verified_evidence = {}
+        st.session_state.evidence_cache_key = ""
         return
 
+    cache_key = evidence_cache_key(inputs)
+    if (
+        cache_key
+        and cache_key == st.session_state.get("evidence_cache_key", "")
+        and st.session_state.get("evaluated_evidence")
+        and st.session_state.get("verified_evidence")
+    ):
+        return
+
+    started_at = time.perf_counter()
     evaluated_response = generate_text(
         evaluate_system_prompt(inputs["language"]),
         evaluate_user_prompt(
@@ -584,7 +642,9 @@ def run_evan_light(inputs: dict[str, Any]) -> None:
         max_tokens=1800,
     )
     evaluated = parse_json_response(evaluated_response)
+    record_timing("Evidence evaluation", started_at)
 
+    started_at = time.perf_counter()
     verified_response = generate_text(
         verify_system_prompt(inputs["language"]),
         verify_user_prompt(
@@ -596,9 +656,11 @@ def run_evan_light(inputs: dict[str, Any]) -> None:
         max_tokens=1800,
     )
     verified = parse_json_response(verified_response)
+    record_timing("Evidence verification", started_at)
 
     st.session_state.evaluated_evidence = evaluated
     st.session_state.verified_evidence = verified
+    st.session_state.evidence_cache_key = cache_key
 
 
 def run_outline_generation() -> None:
@@ -612,11 +674,13 @@ def run_outline_generation() -> None:
     run_evan_light(inputs)
     inputs = current_inputs()
 
+    started_at = time.perf_counter()
     response = generate_text(
         outline_system_prompt(inputs["language"]),
         outline_user_prompt(inputs),
         max_tokens=2200,
     )
+    record_timing("Writer outline generation", started_at)
     parsed = parse_json_response(response)
     generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"])
     manual_title = get_manual_title()
@@ -653,11 +717,13 @@ def run_writer_full_generation() -> None:
     run_evan_light(inputs)
     inputs = current_inputs()
 
+    started_at = time.perf_counter()
     response = generate_text(
         outline_system_prompt(inputs["language"]),
         outline_user_prompt(inputs),
         max_tokens=2200,
     )
+    record_timing("Writer outline generation", started_at)
     parsed = parse_json_response(response)
     generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"])
     manual_title = get_manual_title()
@@ -757,11 +823,13 @@ def run_ai_friendly_generation() -> None:
     if not inputs["title"]:
         inputs["title"] = topic_seed
 
+    started_at = time.perf_counter()
     outline_response = generate_text(
         ai_friendly_outline_system_prompt(inputs["language"]),
         ai_friendly_outline_user_prompt(inputs),
         max_tokens=2400,
     )
+    record_timing("AI-friendly outline generation", started_at)
     outline_parsed = parse_json_response(outline_response)
 
     generated_outline_title = clean_text(
@@ -792,6 +860,7 @@ def run_ai_friendly_generation() -> None:
             f"- {keyword}" for keyword in seo_keywords
         )
 
+    started_at = time.perf_counter()
     response = generate_text(
         ai_friendly_blog_system_prompt(inputs["language"]),
         ai_friendly_blog_user_prompt(
@@ -801,6 +870,7 @@ def run_ai_friendly_generation() -> None:
         ) + keyword_instruction,
         max_tokens=3800,
     )
+    record_timing("AI-friendly blog generation", started_at)
 
     final_draft = response.strip()
     if keyword_footer:
@@ -995,33 +1065,48 @@ def normalise_ai_outline() -> None:
 
 
 def generate_missing_sections(inputs: dict[str, Any], title: str) -> bool:
-    generated_any = False
-    for section in st.session_state.outline:
-        key = section["id"]
+    missing_sections = []
+    outline_snapshot = [dict(section) for section in st.session_state.outline]
+
+    for section in outline_snapshot:
+        key = str(section["id"])
         existing = clean_text(st.session_state.sections_content.get(key, ""))
         if existing:
             continue
+        missing_sections.append(section)
 
-        tighter_section = dict(section)
-        tighter_section["objective"] = (
-            f"{clean_text(section.get('objective', ''))} "
-            f"Write approximately {int(section['suggestedWords'])} words. "
-            f"Do not exceed the target by more than 120 words."
-        ).strip()
+    if not missing_sections:
+        return False
 
-        section_text = sanitise_section_content(
-            generate_text(
-                section_system_prompt(inputs["language"]),
-                section_user_prompt(inputs, tighter_section, title, st.session_state.outline),
-                max_tokens=section_max_tokens(int(section["suggestedWords"])),
-            ),
-            section.get("heading", ""),
-        )
+    generated_any = False
+    max_workers = parallel_section_workers(len(missing_sections))
+    started_at = time.perf_counter()
 
-        st.session_state.sections_content[key] = section_text
-        st.session_state[f"content_{key}"] = section_text
-        generated_any = True
+    if max_workers == 1:
+        for section in missing_sections:
+            key, section_text = generate_single_section(inputs, title, section, outline_snapshot)
+            st.session_state.sections_content[key] = section_text
+            st.session_state[f"content_{key}"] = section_text
+            generated_any = True
+    else:
+        ordered_results: dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(generate_single_section, inputs, title, section, outline_snapshot): str(section["id"])
+                for section in missing_sections
+            }
+            for future in as_completed(futures):
+                key, section_text = future.result()
+                ordered_results[key] = section_text
 
+        for section in outline_snapshot:
+            key = str(section["id"])
+            if key in ordered_results:
+                st.session_state.sections_content[key] = ordered_results[key]
+                st.session_state[f"content_{key}"] = ordered_results[key]
+                generated_any = True
+
+    record_timing(f"Section generation ({len(missing_sections)} sections)", started_at)
     return generated_any
 
 
