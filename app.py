@@ -456,6 +456,34 @@ Rules:
     return [clean_text(item) for item in parsed.get("keywords", []) if clean_text(item)][:12]
 
 
+
+def generate_ai_title(topic: str, audience: str, language: str) -> str:
+    cleaned_topic = clean_text(topic) or "blog topic"
+    cleaned_audience = clean_text(audience) or "general audience"
+
+    system_prompt = (
+        f"You are an expert blog editor writing in {language}. "
+        "Create one strong, publication-ready blog title and return only the title."
+    )
+
+    user_prompt = f"""
+Create one compelling blog title for this topic.
+
+Topic or working title: {cleaned_topic}
+Audience: {cleaned_audience}
+
+Rules:
+- Return exactly one title only.
+- Make it clear, natural, and publication-ready.
+- Use title case where appropriate.
+- Do not add quotation marks.
+- Do not add numbering, bullets, or commentary.
+- Keep it under 75 characters where possible.
+"""
+
+    response = generate_text(system_prompt, user_prompt, max_tokens=120)
+    return clean_text(response.splitlines()[0])
+
 def run_evan_light(inputs: dict[str, Any]) -> None:
     evidence_text = build_evidence_bundle(inputs)
 
@@ -1303,16 +1331,28 @@ st.markdown(
     div[data-testid="stNumberInput"] input {
         border-radius: 14px !important;
         min-height: 46px !important;
+        background: #ffffff !important;
+        border: 1px solid #d8e0ea !important;
     }
 
     div[data-testid="stTextArea"] textarea {
         border-radius: 16px !important;
+        background: #ffffff !important;
+        border: 1px solid #d8e0ea !important;
     }
 
     div[data-baseweb="select"] > div,
     div[data-testid="stSelectbox"] > div > div {
         border-radius: 14px !important;
         min-height: 46px !important;
+        background: #ffffff !important;
+        border: 1px solid #d8e0ea !important;
+    }
+
+    div[data-testid="stFileUploader"] section {
+        background: #ffffff !important;
+        border-radius: 16px !important;
+        border: 1px solid #d8e0ea !important;
     }
 
     .stButton > button,
@@ -1445,18 +1485,32 @@ st.markdown("<div class='page-title'>Create a Blog Post</div>", unsafe_allow_htm
 
 st.markdown("<div class='form-card'>", unsafe_allow_html=True)
 
-st.text_input(
-    "Blog Title / Topic",
-    key="topic",
-    placeholder="why recruitment marketing matters",
-)
-
 top_row_col1, top_row_col2 = st.columns([5, 1.2], gap="small")
+with top_row_col1:
+    st.text_input(
+        "Blog Title / Topic",
+        key="topic",
+        placeholder="why recruitment marketing matters",
+    )
 with top_row_col2:
-    if st.button("AI Title", use_container_width=True):
-        if st.session_state.topic.strip() and not st.session_state.title.strip():
-            st.session_state.title = st.session_state.topic.strip()
-            st.rerun()
+    st.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
+    if st.button("AI Title", use_container_width=True, type="primary"):
+        try:
+            topic_seed = clean_text(st.session_state.topic or st.session_state.title or st.session_state.ai_outline_title)
+            if not topic_seed:
+                st.warning("Please enter a topic first.")
+            else:
+                generated_title = generate_ai_title(
+                    topic=topic_seed,
+                    audience=st.session_state.audience,
+                    language=st.session_state.language,
+                )
+                st.session_state.topic = generated_title
+                st.session_state.title = generated_title
+                st.success("AI title generated.")
+                st.rerun()
+        except Exception as exc:
+            st.error(f"Could not generate AI title: {exc}")
 
 facts_col, quotes_col = st.columns(2)
 with facts_col:
