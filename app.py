@@ -92,6 +92,8 @@ def init_state() -> None:
         "writer_full_draft": "",
         "writer_full_draft_editor": "",
         "pending_writer_full_generation": False,
+        "writer_export_title": "",
+        "ai_export_title": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -527,6 +529,38 @@ def get_ai_title_source_text() -> str:
         parts.append("Current AI-friendly draft:\n" + st.session_state.ai_friendly_draft.strip()[:12000])
 
     return "\n\n".join(part for part in parts if clean_text(part)).strip()
+
+
+def resolve_export_title_from_content(default_title: str, draft_content: str) -> str:
+    fallback_title = clean_text(default_title) or "Blog article"
+
+    if not st.session_state.get("ai_title_checkbox"):
+        return fallback_title
+
+    cleaned_content = clean_text(draft_content)
+    if not cleaned_content:
+        return fallback_title
+
+    try:
+        generated_title = generate_ai_title(
+            topic=fallback_title,
+            audience=st.session_state.audience,
+            language=st.session_state.language,
+            content=cleaned_content,
+        )
+        return clean_text(generated_title) or fallback_title
+    except Exception:
+        return fallback_title
+
+
+@st.cache_data(show_spinner=False)
+def build_docx_bytes_cached(title: str, sections_payload: str, logo_bytes: bytes | None = None) -> bytes:
+    return export_blog_docx(title, json.loads(sections_payload), logo_bytes)
+
+
+@st.cache_data(show_spinner=False)
+def build_pdf_bytes_cached(title: str, sections_payload: str, logo_bytes: bytes | None = None) -> bytes:
+    return export_blog_pdf(title, json.loads(sections_payload), logo_bytes)
 def run_evan_light(inputs: dict[str, Any]) -> None:
     evidence_text = build_evidence_bundle(inputs)
 
@@ -645,6 +679,7 @@ def run_writer_full_generation() -> None:
     draft = sections_to_markdown(ordered_sections)
     st.session_state.writer_full_draft = draft
     st.session_state.writer_full_draft_editor = draft
+    st.session_state.writer_export_title = resolve_export_title_from_content(title, draft)
     st.success("Blog generated.")
     st.rerun()
 
@@ -762,6 +797,7 @@ def run_ai_friendly_generation() -> None:
 
     st.session_state.ai_friendly_draft = final_draft
     st.session_state.ai_friendly_draft_editor = final_draft
+    st.session_state.ai_export_title = resolve_export_title_from_content(outline_title, final_draft)
     st.success("AI-friendly blog generated.")
     st.rerun()
 
@@ -1559,35 +1595,9 @@ with top_row_col2:
     st.checkbox("AI Title", key="ai_title_checkbox")
 
 ai_title_checked = bool(st.session_state.ai_title_checkbox)
-ai_title_was_checked = bool(st.session_state.ai_title_checkbox_prev)
 
-if ai_title_checked and not ai_title_was_checked:
-    try:
-        topic_seed = clean_text(
-            st.session_state.topic_input
-            or st.session_state.topic
-            or st.session_state.title
-            or st.session_state.ai_outline_title
-        )
-        content_seed = get_ai_title_source_text()
-        if not content_seed:
-            st.warning("AI Title needs content to read first.")
-        elif not topic_seed and not content_seed:
-            st.warning("Please enter a topic first.")
-        else:
-            generated_title = generate_ai_title(
-                topic=topic_seed or "blog topic",
-                audience=st.session_state.audience,
-                language=st.session_state.language,
-                content=content_seed,
-            )
-            st.session_state.pending_ai_title = generated_title
-            st.session_state.ai_title_checkbox_prev = ai_title_checked
-            st.rerun()
-    except Exception as exc:
-        st.error(f"Could not generate AI title: {exc}")
-
-st.session_state.ai_title_checkbox_prev = ai_title_checked
+if ai_title_checked:
+    st.caption("When checked, the downloaded DOCX/PDF will use a content-based title after the blog is generated.")
 
 facts_col, quotes_col = st.columns(2)
 with facts_col:
@@ -1732,7 +1742,7 @@ st.markdown("## Export")
 if st.session_state.blog_mode == "Writer Version":
     if st.session_state.writer_full_draft.strip():
         inputs = current_inputs()
-        title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"] or "Blog article")
+        title = clean_text(st.session_state.writer_export_title or st.session_state.outline_title or inputs["title"] or inputs["topic"] or "Blog article")
         export_sections = markdown_to_export_sections(st.session_state.writer_full_draft, title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
 
@@ -1783,7 +1793,8 @@ if st.session_state.blog_mode == "Writer Version":
         export_col1, export_col2 = st.columns(2)
 
         with export_col1:
-            docx_bytes = export_blog_docx(title or "blog-article", export_sections)
+            sections_payload = json.dumps(export_sections, ensure_ascii=False)
+            docx_bytes = build_docx_bytes_cached(title or "blog-article", sections_payload, st.session_state.logo_bytes)
             st.download_button(
                 "Download DOCX",
                 data=docx_bytes,
@@ -1793,7 +1804,7 @@ if st.session_state.blog_mode == "Writer Version":
             )
 
         with export_col2:
-            pdf_bytes = export_blog_pdf(title or "blog-article", export_sections)
+            pdf_bytes = build_pdf_bytes_cached(title or "blog-article", sections_payload, st.session_state.logo_bytes)
             st.download_button(
                 "Download PDF",
                 data=pdf_bytes,
@@ -1807,7 +1818,7 @@ else:
     if st.session_state.ai_friendly_draft.strip():
         inputs = current_inputs()
         export_title = clean_text(
-            st.session_state.ai_outline_title or inputs["title"] or inputs["topic"] or "AI-friendly blog"
+            st.session_state.ai_export_title or st.session_state.ai_outline_title or inputs["title"] or inputs["topic"] or "AI-friendly blog"
         )
         export_sections = markdown_to_export_sections(st.session_state.ai_friendly_draft, export_title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
@@ -1859,7 +1870,8 @@ else:
         export_col1, export_col2 = st.columns(2)
 
         with export_col1:
-            docx_bytes = export_blog_docx(export_title or "blog-article", export_sections)
+            sections_payload = json.dumps(export_sections, ensure_ascii=False)
+            docx_bytes = build_docx_bytes_cached(export_title or "blog-article", sections_payload, st.session_state.logo_bytes)
             st.download_button(
                 "Download DOCX",
                 data=docx_bytes,
@@ -1869,7 +1881,7 @@ else:
             )
 
         with export_col2:
-            pdf_bytes = export_blog_pdf(export_title or "blog-article", export_sections)
+            pdf_bytes = build_pdf_bytes_cached(export_title or "blog-article", sections_payload, st.session_state.logo_bytes)
             st.download_button(
                 "Download PDF",
                 data=pdf_bytes,
