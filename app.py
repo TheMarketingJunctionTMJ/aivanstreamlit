@@ -48,6 +48,7 @@ def init_state() -> None:
         "blog_mode": "Writer Version",
         "title": "",
         "topic": "",
+        "topic_input": "",
         "audience": "",
         "keywords_text": "",
         "facts_text": "",
@@ -107,7 +108,8 @@ def current_inputs() -> dict[str, Any]:
             or st.session_state.topic.strip()
         ),
         "topic": (
-            st.session_state.topic.strip()
+            st.session_state.topic_input.strip()
+            or st.session_state.topic.strip()
             or st.session_state.ai_outline_title.strip()
             or st.session_state.outline_title.strip()
         ),
@@ -1483,20 +1485,33 @@ with st.sidebar:
 st.markdown("<div class='main-wrap'>", unsafe_allow_html=True)
 st.markdown("<div class='page-title'>Create a Blog Post</div>", unsafe_allow_html=True)
 
+if not st.session_state.topic_input:
+    st.session_state.topic_input = clean_text(
+        st.session_state.topic
+        or st.session_state.title
+        or st.session_state.ai_outline_title
+        or st.session_state.outline_title
+    )
+
 st.markdown("<div class='form-card'>", unsafe_allow_html=True)
 
 top_row_col1, top_row_col2 = st.columns([5, 1.2], gap="small")
 with top_row_col1:
     st.text_input(
         "Blog Title / Topic",
-        key="topic",
+        key="topic_input",
         placeholder="why recruitment marketing matters",
     )
 with top_row_col2:
     st.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
     if st.button("AI Title", use_container_width=True, type="primary"):
         try:
-            topic_seed = clean_text(st.session_state.topic or st.session_state.title or st.session_state.ai_outline_title)
+            topic_seed = clean_text(
+                st.session_state.topic_input
+                or st.session_state.topic
+                or st.session_state.title
+                or st.session_state.ai_outline_title
+            )
             if not topic_seed:
                 st.warning("Please enter a topic first.")
             else:
@@ -1505,6 +1520,7 @@ with top_row_col2:
                     audience=st.session_state.audience,
                     language=st.session_state.language,
                 )
+                st.session_state.topic_input = generated_title
                 st.session_state.topic = generated_title
                 st.session_state.title = generated_title
                 st.success("AI title generated.")
