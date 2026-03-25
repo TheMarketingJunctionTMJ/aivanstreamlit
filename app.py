@@ -1564,19 +1564,6 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
-if (
-    st.session_state.outline
-    or st.session_state.ai_friendly_draft
-):
-    st.markdown(
-        """
-        <div class="result-card">
-            <div class="result-title">Article generated</div>
-            <div class="result-copy">Review your content below. You can revise or download as DOCX or PDF.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 if st.session_state.get("generation_success_message"):
     st.success(st.session_state.pop("generation_success_message"))
@@ -1607,41 +1594,7 @@ if st.session_state.document_insights:
 
 
 else:
-    if st.session_state.ai_friendly_draft:
-        st.markdown("## AI-friendly full draft")
-
-        if not st.session_state.ai_friendly_draft_editor:
-            st.session_state.ai_friendly_draft_editor = st.session_state.ai_friendly_draft
-
-        draft_height = calc_text_area_height(
-            st.session_state.ai_friendly_draft_editor,
-            min_height=600,
-            line_px=26,
-            extra_lines=10,
-        )
-
-        edited_draft = st.text_area(
-            "Generated AI-friendly blog",
-            value=st.session_state.ai_friendly_draft_editor,
-            key="ai_friendly_draft_editor_widget",
-            height=draft_height,
-        )
-
-        st.session_state.ai_friendly_draft_editor = edited_draft
-        st.session_state.ai_friendly_draft = edited_draft
-
-        ai_action_col1, ai_action_col2 = st.columns([1.2, 3.8])
-        with ai_action_col1:
-            if st.button("Regenerate AI-friendly blog", use_container_width=True):
-                try:
-                    set_processing("Regenerating your AI-friendly blog draft...")
-                    st.session_state.pending_ai_friendly_generation = True
-                    st.rerun()
-                except Exception as exc:
-                    clear_processing()
-                    st.error(f"Regeneration failed: {exc}")
-        with ai_action_col2:
-            st.caption("You can edit the draft directly before exporting.")
+    pass
 
 st.markdown("## Export")
 
