@@ -1597,42 +1597,6 @@ if st.session_state.document_insights:
         for item in st.session_state.document_insights:
             st.write(f"- {item}")
 
-if st.session_state.blog_mode == "Writer Version":
-    if st.session_state.writer_full_draft:
-        st.markdown("## Blog preview")
-
-        if not st.session_state.writer_full_draft_editor:
-            st.session_state.writer_full_draft_editor = st.session_state.writer_full_draft
-
-        draft_height = calc_text_area_height(
-            st.session_state.writer_full_draft_editor,
-            min_height=700,
-            line_px=26,
-            extra_lines=12,
-        )
-
-        edited_writer_draft = st.text_area(
-            "Generated blog",
-            value=st.session_state.writer_full_draft_editor,
-            key="writer_full_draft_editor_widget",
-            height=draft_height,
-        )
-
-        st.session_state.writer_full_draft_editor = edited_writer_draft
-        st.session_state.writer_full_draft = edited_writer_draft
-
-        writer_action_col1, writer_action_col2 = st.columns([1.2, 3.8])
-        with writer_action_col1:
-            if st.button("Regenerate Blog", use_container_width=True):
-                try:
-                    set_processing("Generating your full blog draft...")
-                    st.session_state.pending_writer_full_generation = True
-                    st.rerun()
-                except Exception as exc:
-                    clear_processing()
-                    st.error(f"Regeneration failed: {exc}")
-        with writer_action_col2:
-            st.caption("The draft opens directly here so you can review, revise, and export it without outline or section steps.")
 
 else:
     if st.session_state.ai_outline:
