@@ -50,6 +50,7 @@ def init_state() -> None:
         "topic": "",
         "topic_input": "",
         "pending_ai_title": "",
+        "apply_ai_title_from_content": False,
         "audience": "",
         "keywords_text": "",
         "facts_text": "",
@@ -1011,6 +1012,36 @@ def apply_pending_ai_title() -> None:
     st.session_state.topic_input = pending_title
     st.session_state.topic = pending_title
     st.session_state.title = pending_title
+    st.session_state.outline_title = pending_title
+    st.session_state.ai_outline_title = pending_title
+
+
+def maybe_apply_ai_title_from_checkbox() -> None:
+    if not st.session_state.get("apply_ai_title_from_content"):
+        return
+    if st.session_state.get("pending_ai_title"):
+        return
+
+    content_source = ai_title_source_text()
+    if not content_source:
+        st.warning("Add some blog content first so AI Title can read it before rewriting the topic.")
+        st.session_state.apply_ai_title_from_content = False
+        return
+
+    generated_title = generate_ai_title_from_content(
+        topic=clean_text(
+            st.session_state.topic_input
+            or st.session_state.topic
+            or st.session_state.title
+            or st.session_state.ai_outline_title
+        ),
+        audience=st.session_state.audience,
+        language=st.session_state.language,
+        content=content_source,
+    )
+    st.session_state.pending_ai_title = generated_title
+    st.session_state.apply_ai_title_from_content = False
+    st.rerun()
 
 
 def render_processing_overlay() -> None:
@@ -1516,27 +1547,12 @@ with top_row_col1:
         placeholder="why recruitment marketing matters",
     )
 with top_row_col2:
-    st.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
-    if st.button("AI Title", use_container_width=True, type="primary"):
-        try:
-            topic_seed = clean_text(
-                st.session_state.topic_input
-                or st.session_state.topic
-                or st.session_state.title
-                or st.session_state.ai_outline_title
-            )
-            if not topic_seed:
-                st.warning("Please enter a topic first.")
-            else:
-                generated_title = generate_ai_title(
-                    topic=topic_seed,
-                    audience=st.session_state.audience,
-                    language=st.session_state.language,
-                )
-                st.session_state.pending_ai_title = generated_title
-                st.rerun()
-        except Exception as exc:
-            st.error(f"Could not generate AI title: {exc}")
+    st.markdown("<div style='height: 1.2rem;'></div>", unsafe_allow_html=True)
+    st.checkbox(
+        "AI Title",
+        key="apply_ai_title_from_content",
+        help="Reads the current content first, then rewrites the blog topic/title to match it.",
+    )
 
 facts_col, quotes_col = st.columns(2)
 with facts_col:
@@ -1685,11 +1701,12 @@ if st.session_state.blog_mode == "Writer Version":
         export_sections = markdown_to_export_sections(st.session_state.writer_full_draft, title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
 
-        preview_markdown = "\n\n".join(
+        preview_body = "\n\n".join(
             f"## {item['heading']}\n\n{item['content']}"
             for item in export_sections
             if item["content"].strip()
         )
+        preview_markdown = f"# {title}\n\n{preview_body}" if preview_body else f"# {title}"
 
         with st.expander("Preview article", expanded=False):
             preview_height = calc_text_area_height(
@@ -1761,11 +1778,12 @@ else:
         export_sections = markdown_to_export_sections(st.session_state.ai_friendly_draft, export_title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
 
-        preview_markdown = "\n\n".join(
+        preview_body = "\n\n".join(
             f"## {item['heading']}\n\n{item['content']}"
             for item in export_sections
             if item["content"].strip()
         )
+        preview_markdown = f"# {export_title}\n\n{preview_body}" if preview_body else f"# {export_title}"
 
         with st.expander("Preview article", expanded=False):
             preview_height = calc_text_area_height(
