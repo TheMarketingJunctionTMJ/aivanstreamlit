@@ -49,6 +49,7 @@ def init_state() -> None:
         "title": "",
         "topic": "",
         "topic_input": "",
+        "pending_ai_title": "",
         "audience": "",
         "keywords_text": "",
         "facts_text": "",
@@ -102,7 +103,8 @@ def lines_to_list(value: str) -> list[str]:
 def current_inputs() -> dict[str, Any]:
     return {
         "title": (
-            st.session_state.title.strip()
+            st.session_state.topic_input.strip()
+            or st.session_state.title.strip()
             or st.session_state.ai_outline_title.strip()
             or st.session_state.outline_title.strip()
             or st.session_state.topic.strip()
@@ -1001,6 +1003,16 @@ def clear_processing() -> None:
     st.session_state.processing_message = ""
 
 
+def apply_pending_ai_title() -> None:
+    pending_title = clean_text(st.session_state.pop("pending_ai_title", ""))
+    if not pending_title:
+        return
+
+    st.session_state.topic_input = pending_title
+    st.session_state.topic = pending_title
+    st.session_state.title = pending_title
+
+
 def render_processing_overlay() -> None:
     message = clean_text(st.session_state.get("processing_message", ""))
     if not message:
@@ -1096,6 +1108,7 @@ def render_mode_controls() -> None:
 
 init_state()
 apply_pending_content_updates()
+apply_pending_ai_title()
 normalise_outline()
 normalise_ai_outline()
 
@@ -1520,10 +1533,7 @@ with top_row_col2:
                     audience=st.session_state.audience,
                     language=st.session_state.language,
                 )
-                st.session_state.topic_input = generated_title
-                st.session_state.topic = generated_title
-                st.session_state.title = generated_title
-                st.success("AI title generated.")
+                st.session_state.pending_ai_title = generated_title
                 st.rerun()
         except Exception as exc:
             st.error(f"Could not generate AI title: {exc}")
