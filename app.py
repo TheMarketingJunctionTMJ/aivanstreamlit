@@ -92,6 +92,10 @@ def init_state() -> None:
         "writer_full_draft": "",
         "writer_full_draft_editor": "",
         "pending_writer_full_generation": False,
+        "writer_export_title": "",
+        "writer_export_title_source": "",
+        "ai_export_title": "",
+        "ai_export_title_source": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -102,21 +106,23 @@ def lines_to_list(value: str) -> list[str]:
     return [line.strip() for line in str(value).splitlines() if line.strip()]
 
 
+def get_manual_title() -> str:
+    return clean_text(
+        st.session_state.get("topic_input", "")
+        or st.session_state.get("title", "")
+        or st.session_state.get("topic", "")
+    )
+
+
 def current_inputs() -> dict[str, Any]:
+    manual_title = get_manual_title()
+    generated_title = clean_text(
+        st.session_state.ai_outline_title
+        or st.session_state.outline_title
+    )
     return {
-        "title": (
-            st.session_state.topic_input.strip()
-            or st.session_state.title.strip()
-            or st.session_state.ai_outline_title.strip()
-            or st.session_state.outline_title.strip()
-            or st.session_state.topic.strip()
-        ),
-        "topic": (
-            st.session_state.topic_input.strip()
-            or st.session_state.topic.strip()
-            or st.session_state.ai_outline_title.strip()
-            or st.session_state.outline_title.strip()
-        ),
+        "title": manual_title or generated_title,
+        "topic": manual_title or generated_title,
         "audience": st.session_state.audience.strip(),
         "keywords": lines_to_list(st.session_state.keywords_text),
         "facts": lines_to_list(st.session_state.facts_text),
@@ -379,6 +385,8 @@ def queue_full_blog_revision_for_writer(revised_markdown: str) -> None:
     cleaned = clean_text(revised_markdown)
     st.session_state["writer_full_draft"] = cleaned
     st.session_state["writer_full_draft_editor"] = cleaned
+    st.session_state["writer_export_title"] = ""
+    st.session_state["writer_export_title_source"] = ""
 
 
 
@@ -386,6 +394,8 @@ def queue_full_blog_revision_for_ai(revised_markdown: str) -> None:
     st.session_state["pending_ai_full_blog_revision"] = {
         "revised_markdown": clean_text(revised_markdown),
     }
+    st.session_state["ai_export_title"] = ""
+    st.session_state["ai_export_title_source"] = ""
 
 
 def make_section_id() -> str:
@@ -527,6 +537,35 @@ def get_ai_title_source_text() -> str:
         parts.append("Current AI-friendly draft:\n" + st.session_state.ai_friendly_draft.strip()[:12000])
 
     return "\n\n".join(part for part in parts if clean_text(part)).strip()
+
+
+def resolve_export_title(mode: str, fallback_title: str, content: str) -> str:
+    fallback_title = clean_text(fallback_title) or ("AI-friendly blog" if mode == "AI Friendly" else "Blog article")
+
+    cached_title_key = "ai_export_title" if mode == "AI Friendly" else "writer_export_title"
+    cached_source_key = "ai_export_title_source" if mode == "AI Friendly" else "writer_export_title_source"
+    content_signature = clean_text(content)[:12000]
+
+    if not st.session_state.ai_title_checkbox:
+        st.session_state[cached_title_key] = ""
+        st.session_state[cached_source_key] = ""
+        return fallback_title
+
+    cached_title = clean_text(st.session_state.get(cached_title_key, ""))
+    cached_source = st.session_state.get(cached_source_key, "")
+    if cached_title and cached_source == content_signature:
+        return cached_title
+
+    ai_title = generate_ai_title(
+        topic=fallback_title,
+        audience=clean_text(st.session_state.audience),
+        language=clean_text(st.session_state.language) or "UK English",
+        content=content,
+    )
+    final_title = clean_text(ai_title) or fallback_title
+    st.session_state[cached_title_key] = final_title
+    st.session_state[cached_source_key] = content_signature
+    return final_title
 def run_evan_light(inputs: dict[str, Any]) -> None:
     evidence_text = build_evidence_bundle(inputs)
 
@@ -579,9 +618,9 @@ def run_outline_generation() -> None:
         max_tokens=2200,
     )
     parsed = parse_json_response(response)
-    st.session_state.outline_title = clean_text(
-        parsed.get("title") or inputs["title"] or inputs["topic"]
-    )
+    generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"])
+    manual_title = get_manual_title()
+    st.session_state.outline_title = generated_title if st.session_state.ai_title_checkbox else (manual_title or generated_title)
     st.session_state.outline = parsed.get("outline", [])
     st.session_state.sections_content = {}
     st.session_state.sections_workspace_ready = False
@@ -620,16 +659,16 @@ def run_writer_full_generation() -> None:
         max_tokens=2200,
     )
     parsed = parse_json_response(response)
-    st.session_state.outline_title = clean_text(
-        parsed.get("title") or inputs["title"] or inputs["topic"]
-    )
+    generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"])
+    manual_title = get_manual_title()
+    st.session_state.outline_title = generated_title if st.session_state.ai_title_checkbox else (manual_title or generated_title)
     st.session_state.outline = parsed.get("outline", [])
     st.session_state.sections_content = {}
     st.session_state.sections_workspace_ready = True
     st.session_state.new_section_prompt = ""
     normalise_outline()
 
-    title = clean_text(st.session_state.outline_title or inputs["title"] or inputs["topic"])
+    title = clean_text(get_manual_title() or st.session_state.outline_title or inputs["title"] or inputs["topic"])
     generate_missing_sections(inputs, title)
 
     ordered_sections = [
@@ -645,6 +684,11 @@ def run_writer_full_generation() -> None:
     draft = sections_to_markdown(ordered_sections)
     st.session_state.writer_full_draft = draft
     st.session_state.writer_full_draft_editor = draft
+    st.session_state.writer_export_title = ""
+    st.session_state.writer_export_title_source = ""
+    if st.session_state.ai_title_checkbox:
+        fallback_title = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or title)
+        st.session_state.writer_export_title = resolve_export_title("Writer Version", fallback_title, draft)
     st.success("Blog generated.")
     st.rerun()
 
@@ -674,9 +718,9 @@ def run_ai_outline_generation() -> None:
     )
     parsed = parse_json_response(response)
 
-    st.session_state.ai_outline_title = clean_text(
-        parsed.get("title") or inputs["title"] or inputs["topic"] or topic_seed
-    )
+    generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"] or topic_seed)
+    manual_title = get_manual_title()
+    st.session_state.ai_outline_title = generated_title if st.session_state.ai_title_checkbox else (manual_title or generated_title)
     st.session_state.ai_outline = parsed.get("outline", [])
     st.session_state.ai_new_section_prompt = ""
     st.session_state.ai_friendly_draft = ""
@@ -720,9 +764,11 @@ def run_ai_friendly_generation() -> None:
     )
     outline_parsed = parse_json_response(outline_response)
 
-    outline_title = clean_text(
+    generated_outline_title = clean_text(
         outline_parsed.get("title") or inputs["title"] or inputs["topic"] or topic_seed
     )
+    manual_title = get_manual_title()
+    outline_title = generated_outline_title if st.session_state.ai_title_checkbox else (manual_title or generated_outline_title)
     outline = outline_parsed.get("outline", [])
 
     st.session_state.ai_outline_title = outline_title
@@ -762,6 +808,11 @@ def run_ai_friendly_generation() -> None:
 
     st.session_state.ai_friendly_draft = final_draft
     st.session_state.ai_friendly_draft_editor = final_draft
+    st.session_state.ai_export_title = ""
+    st.session_state.ai_export_title_source = ""
+    if st.session_state.ai_title_checkbox:
+        fallback_title = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or outline_title)
+        st.session_state.ai_export_title = resolve_export_title("AI Friendly", fallback_title, final_draft)
     st.success("AI-friendly blog generated.")
     st.rerun()
 
@@ -1025,6 +1076,8 @@ def apply_pending_content_updates() -> None:
         if revised_markdown:
             st.session_state.ai_friendly_draft = revised_markdown
             st.session_state.ai_friendly_draft_editor = revised_markdown
+            st.session_state.ai_export_title = ""
+            st.session_state.ai_export_title_source = ""
             st.session_state["revision_success_message"] = "Full blog revised."
 
 
@@ -1043,13 +1096,7 @@ def clear_processing() -> None:
 
 
 def apply_pending_ai_title() -> None:
-    pending_title = clean_text(st.session_state.pop("pending_ai_title", ""))
-    if not pending_title:
-        return
-
-    st.session_state.topic_input = pending_title
-    st.session_state.topic = pending_title
-    st.session_state.title = pending_title
+    st.session_state.pop("pending_ai_title", "")
 
 
 def render_processing_overlay() -> None:
@@ -1707,10 +1754,10 @@ if st.session_state.blog_mode == "Writer Version":
         user_export_title = clean_text(
             st.session_state.topic_input or st.session_state.title or st.session_state.topic
         )
-        title = clean_text(
-            st.session_state.writer_export_title
-            if st.session_state.ai_title_checkbox and st.session_state.writer_export_title.strip()
-            else user_export_title or "Blog article"
+        title = resolve_export_title(
+            "Writer Version",
+            user_export_title or "Blog article",
+            st.session_state.writer_full_draft,
         )
         export_sections = markdown_to_export_sections(st.session_state.writer_full_draft, title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
@@ -1788,10 +1835,10 @@ else:
         user_export_title = clean_text(
             st.session_state.topic_input or st.session_state.title or st.session_state.topic
         )
-        export_title = clean_text(
-            st.session_state.ai_export_title
-            if st.session_state.ai_title_checkbox and st.session_state.ai_export_title.strip()
-            else user_export_title or "AI-friendly blog"
+        export_title = resolve_export_title(
+            "AI Friendly",
+            user_export_title or "AI-friendly blog",
+            st.session_state.ai_friendly_draft,
         )
         export_sections = markdown_to_export_sections(st.session_state.ai_friendly_draft, export_title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
