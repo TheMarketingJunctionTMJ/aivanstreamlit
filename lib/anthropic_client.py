@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from anthropic import Anthropic
 
 
+@lru_cache(maxsize=1)
 def get_client() -> Anthropic:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
