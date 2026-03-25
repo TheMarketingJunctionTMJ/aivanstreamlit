@@ -233,131 +233,6 @@ def section_max_tokens(suggested_words: int) -> int:
     return min(1400, max(250, int(target * 1.35)))
 
 
-def fast_generation_max_tokens(target_words: int) -> int:
-    target = max(600, int(target_words))
-    return min(4200, max(1400, int(target * 1.2)))
-
-
-def build_fast_writer_prompt(inputs: dict[str, Any], title: str) -> tuple[str, str]:
-    evidence_text = build_evidence_bundle(inputs)
-    system_prompt = (
-        f"You are a senior B2B blog writer and editor writing in {inputs['language']}. "
-        "Produce a publication-ready article package quickly and return valid JSON only. "
-        "Do not use em dashes or en dashes anywhere."
-    )
-    user_prompt = f"""
-Create a complete writer-style blog article package in valid JSON.
-
-Return JSON in this exact shape:
-{{
-  "title": "string",
-  "outline": [
-    {{
-      "id": "s1",
-      "heading": "string",
-      "objective": "string",
-      "keyPoints": ["string"],
-      "suggestedWords": 180
-    }}
-  ],
-  "markdown": "# Title\n\n## Heading\nParagraphs..."
-}}
-
-Requirements:
-- Create 4 to 6 H2 sections.
-- The first section should feel like a natural introduction.
-- The last section should close naturally and invite the reader to contact the client.
-- The outline and markdown must match each other closely.
-- Use the provided title as the H1 unless AI Title is enabled and a stronger title is clearly justified by the content.
-- Keep the article practical, human, and commercially credible.
-- Use supplied facts, quotes, research notes, and document insights where relevant.
-- Do not invent unsupported numbers, studies, or quotes.
-- If evidence is thin, keep claims broad and honest.
-- Naturally use SEO keywords where relevant.
-- If add_hiring_section is true, include one dedicated hiring or talent section where relevant.
-- Return JSON only.
-
-Topic: {inputs['topic'] or title}
-Working title: {title}
-Audience: {inputs['audience']}
-Tone: {inputs['tone']}
-Target words: {inputs['target_words']}
-SEO keywords:
-{to_bullet_lines(inputs['keywords']) or '- None provided'}
-Evidence bundle:
-{evidence_text or 'None provided'}
-Research notes:
-{inputs.get('research_notes') or 'None provided'}
-Add hiring section: {'Yes' if inputs.get('add_hiring_section') else 'No'}
-"""
-    return system_prompt, user_prompt
-
-
-def split_markdown_into_sections(markdown: str, outline: list[dict[str, Any]]) -> dict[str, str]:
-    markdown = str(markdown or '').replace('\r\n', '\n')
-    lines = markdown.split('\n')
-    heading_line_indexes: list[tuple[str, int]] = []
-
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith('## '):
-            heading_line_indexes.append((clean_text(stripped[3:]), idx))
-
-    sections_content: dict[str, str] = {}
-    for outline_index, section in enumerate(outline):
-        target_heading = clean_text(section.get('heading', ''))
-        section_id = str(section.get('id', f's{outline_index + 1}'))
-        matched = None
-        for heading_idx, (found_heading, line_index) in enumerate(heading_line_indexes):
-            if normalise_heading_for_compare(found_heading) == normalise_heading_for_compare(target_heading):
-                next_index = heading_line_indexes[heading_idx + 1][1] if heading_idx + 1 < len(heading_line_indexes) else len(lines)
-                body = '\n'.join(lines[line_index + 1:next_index]).strip()
-                matched = sanitise_section_content(body, target_heading)
-                break
-        sections_content[section_id] = matched or ''
-
-    return sections_content
-
-
-def populate_writer_state_from_package(parsed: dict[str, Any], fallback_title: str) -> str:
-    generated_title = clean_text(parsed.get('title') or fallback_title)
-    manual_title = get_manual_title()
-    outline = parsed.get('outline', []) or []
-    markdown = clean_text(parsed.get('markdown', ''))
-
-    st.session_state.outline_title = generated_title if st.session_state.ai_title_checkbox else (manual_title or generated_title)
-    st.session_state.outline = outline
-    st.session_state.sections_workspace_ready = True
-    st.session_state.new_section_prompt = ''
-    normalise_outline()
-
-    sections_content = split_markdown_into_sections(markdown, st.session_state.outline)
-    for section in st.session_state.outline:
-        key = section['id']
-        body = sections_content.get(key, '')
-        st.session_state.sections_content[key] = body
-        st.session_state[f'content_{key}'] = body
-
-    ordered_sections = [
-        {
-            'heading': section['heading'],
-            'content': sanitise_section_content(st.session_state.sections_content.get(section['id'], ''), section['heading']),
-        }
-        for section in st.session_state.outline
-    ]
-    draft = sections_to_markdown(ordered_sections)
-    if not draft.strip() and markdown.strip():
-        draft = markdown.strip()
-    st.session_state.writer_full_draft = draft
-    st.session_state.writer_full_draft_editor = draft
-    st.session_state.writer_export_title = ''
-    st.session_state.writer_export_title_source = ''
-    if st.session_state.ai_title_checkbox:
-        fallback = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or fallback_title)
-        st.session_state.writer_export_title = resolve_export_title('Writer Version', fallback, draft)
-    return draft
-
-
 def count_words_in_sections(ordered_sections: list[dict[str, str]]) -> int:
     total_text = " ".join(
         clean_text(section.get("content", ""))
@@ -775,16 +650,45 @@ def run_writer_full_generation() -> None:
         st.error("Please enter a topic first.")
         return
 
-    title = clean_text(get_manual_title() or inputs["title"] or inputs["topic"] or "Blog article")
+    run_evan_light(inputs)
+    inputs = current_inputs()
 
-    system_prompt, user_prompt = build_fast_writer_prompt(inputs, title)
     response = generate_text(
-        system_prompt,
-        user_prompt,
-        max_tokens=fast_generation_max_tokens(int(inputs["target_words"])),
+        outline_system_prompt(inputs["language"]),
+        outline_user_prompt(inputs),
+        max_tokens=2200,
     )
     parsed = parse_json_response(response)
-    populate_writer_state_from_package(parsed, title)
+    generated_title = clean_text(parsed.get("title") or inputs["title"] or inputs["topic"])
+    manual_title = get_manual_title()
+    st.session_state.outline_title = generated_title if st.session_state.ai_title_checkbox else (manual_title or generated_title)
+    st.session_state.outline = parsed.get("outline", [])
+    st.session_state.sections_content = {}
+    st.session_state.sections_workspace_ready = True
+    st.session_state.new_section_prompt = ""
+    normalise_outline()
+
+    title = clean_text(get_manual_title() or st.session_state.outline_title or inputs["title"] or inputs["topic"])
+    generate_missing_sections(inputs, title)
+
+    ordered_sections = [
+        {
+            "heading": section["heading"],
+            "content": sanitise_section_content(
+                st.session_state.sections_content.get(section["id"], ""),
+                section["heading"],
+            ),
+        }
+        for section in st.session_state.outline
+    ]
+    draft = sections_to_markdown(ordered_sections)
+    st.session_state.writer_full_draft = draft
+    st.session_state.writer_full_draft_editor = draft
+    st.session_state.writer_export_title = ""
+    st.session_state.writer_export_title_source = ""
+    if st.session_state.ai_title_checkbox:
+        fallback_title = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or title)
+        st.session_state.writer_export_title = resolve_export_title("Writer Version", fallback_title, draft)
     st.success("Blog generated.")
     st.rerun()
 
@@ -845,6 +749,32 @@ def run_ai_friendly_generation() -> None:
     if not inputs["title"]:
         inputs["title"] = topic_seed
 
+    run_evan_light(inputs)
+    inputs = current_inputs()
+
+    if not inputs["topic"]:
+        inputs["topic"] = topic_seed
+    if not inputs["title"]:
+        inputs["title"] = topic_seed
+
+    outline_response = generate_text(
+        ai_friendly_outline_system_prompt(inputs["language"]),
+        ai_friendly_outline_user_prompt(inputs),
+        max_tokens=2400,
+    )
+    outline_parsed = parse_json_response(outline_response)
+
+    generated_outline_title = clean_text(
+        outline_parsed.get("title") or inputs["title"] or inputs["topic"] or topic_seed
+    )
+    manual_title = get_manual_title()
+    outline_title = generated_outline_title if st.session_state.ai_title_checkbox else (manual_title or generated_outline_title)
+    outline = outline_parsed.get("outline", [])
+
+    st.session_state.ai_outline_title = outline_title
+    st.session_state.ai_outline = outline
+    normalise_ai_outline()
+
     seo_keywords = [clean_text(keyword) for keyword in inputs["keywords"] if clean_text(keyword)]
 
     keyword_instruction = ""
@@ -864,35 +794,24 @@ def run_ai_friendly_generation() -> None:
 
     response = generate_text(
         ai_friendly_blog_system_prompt(inputs["language"]),
-        ai_friendly_blog_user_prompt(inputs) + keyword_instruction,
-        max_tokens=fast_generation_max_tokens(int(inputs["target_words"])),
+        ai_friendly_blog_user_prompt(
+            inputs,
+            outline_title=outline_title,
+            outline=st.session_state.ai_outline,
+        ) + keyword_instruction,
+        max_tokens=3800,
     )
 
     final_draft = response.strip()
     if keyword_footer:
         final_draft = f"{final_draft}{keyword_footer}"
 
-    manual_title = get_manual_title()
-    if manual_title and not st.session_state.ai_title_checkbox:
-        lines = final_draft.splitlines()
-        replaced = False
-        for idx, line in enumerate(lines):
-            if line.strip().startswith('# '):
-                lines[idx] = f"# {manual_title}"
-                replaced = True
-                break
-        if not replaced:
-            lines.insert(0, f"# {manual_title}")
-            lines.insert(1, "")
-        final_draft = "\n".join(lines).strip()
-
-    st.session_state.ai_outline_title = clean_text(manual_title or topic_seed) if not st.session_state.ai_title_checkbox else clean_text(topic_seed)
     st.session_state.ai_friendly_draft = final_draft
     st.session_state.ai_friendly_draft_editor = final_draft
     st.session_state.ai_export_title = ""
     st.session_state.ai_export_title_source = ""
     if st.session_state.ai_title_checkbox:
-        fallback_title = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or topic_seed)
+        fallback_title = clean_text(st.session_state.topic_input or st.session_state.title or st.session_state.topic or outline_title)
         st.session_state.ai_export_title = resolve_export_title("AI Friendly", fallback_title, final_draft)
     st.success("AI-friendly blog generated.")
     st.rerun()
