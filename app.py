@@ -50,7 +50,8 @@ def init_state() -> None:
         "topic": "",
         "topic_input": "",
         "pending_ai_title": "",
-        "apply_ai_title_from_content": False,
+        "ai_title_checkbox": False,
+        "ai_title_checkbox_prev": False,
         "audience": "",
         "keywords_text": "",
         "facts_text": "",
@@ -462,16 +463,37 @@ Rules:
 
 
 
-def generate_ai_title(topic: str, audience: str, language: str) -> str:
+def generate_ai_title(topic: str, audience: str, language: str, content: str = "") -> str:
     cleaned_topic = clean_text(topic) or "blog topic"
     cleaned_audience = clean_text(audience) or "general audience"
+    cleaned_content = clean_text(content)
 
     system_prompt = (
         f"You are an expert blog editor writing in {language}. "
         "Create one strong, publication-ready blog title and return only the title."
     )
 
-    user_prompt = f"""
+    if cleaned_content:
+        user_prompt = f"""
+Create one compelling blog title after reading the content first.
+
+Working topic: {cleaned_topic}
+Audience: {cleaned_audience}
+
+Content to read before writing the title:
+{cleaned_content[:12000]}
+
+Rules:
+- Read the content first and base the title on the actual subject matter.
+- Return exactly one title only.
+- Make it clear, natural, and publication-ready.
+- Use title case where appropriate.
+- Do not add quotation marks.
+- Do not add numbering, bullets, or commentary.
+- Keep it under 75 characters where possible.
+"""
+    else:
+        user_prompt = f"""
 Create one compelling blog title for this topic.
 
 Topic or working title: {cleaned_topic}
@@ -489,6 +511,22 @@ Rules:
     response = generate_text(system_prompt, user_prompt, max_tokens=120)
     return clean_text(response.splitlines()[0])
 
+
+def get_ai_title_source_text() -> str:
+    inputs = current_inputs()
+    parts: list[str] = []
+
+    evidence_text = build_evidence_bundle(inputs)
+    if evidence_text:
+        parts.append(evidence_text)
+
+    if st.session_state.writer_full_draft.strip():
+        parts.append("Current writer draft:\n" + st.session_state.writer_full_draft.strip()[:12000])
+
+    if st.session_state.ai_friendly_draft.strip():
+        parts.append("Current AI-friendly draft:\n" + st.session_state.ai_friendly_draft.strip()[:12000])
+
+    return "\n\n".join(part for part in parts if clean_text(part)).strip()
 def run_evan_light(inputs: dict[str, Any]) -> None:
     evidence_text = build_evidence_bundle(inputs)
 
@@ -1012,36 +1050,6 @@ def apply_pending_ai_title() -> None:
     st.session_state.topic_input = pending_title
     st.session_state.topic = pending_title
     st.session_state.title = pending_title
-    st.session_state.outline_title = pending_title
-    st.session_state.ai_outline_title = pending_title
-
-
-def maybe_apply_ai_title_from_checkbox() -> None:
-    if not st.session_state.get("apply_ai_title_from_content"):
-        return
-    if st.session_state.get("pending_ai_title"):
-        return
-
-    content_source = ai_title_source_text()
-    if not content_source:
-        st.warning("Add some blog content first so AI Title can read it before rewriting the topic.")
-        st.session_state.apply_ai_title_from_content = False
-        return
-
-    generated_title = generate_ai_title_from_content(
-        topic=clean_text(
-            st.session_state.topic_input
-            or st.session_state.topic
-            or st.session_state.title
-            or st.session_state.ai_outline_title
-        ),
-        audience=st.session_state.audience,
-        language=st.session_state.language,
-        content=content_source,
-    )
-    st.session_state.pending_ai_title = generated_title
-    st.session_state.apply_ai_title_from_content = False
-    st.rerun()
 
 
 def render_processing_overlay() -> None:
@@ -1547,12 +1555,39 @@ with top_row_col1:
         placeholder="why recruitment marketing matters",
     )
 with top_row_col2:
-    st.markdown("<div style='height: 1.2rem;'></div>", unsafe_allow_html=True)
-    st.checkbox(
-        "AI Title",
-        key="apply_ai_title_from_content",
-        help="Reads the current content first, then rewrites the blog topic/title to match it.",
-    )
+    st.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
+    st.checkbox("AI Title", key="ai_title_checkbox")
+
+ai_title_checked = bool(st.session_state.ai_title_checkbox)
+ai_title_was_checked = bool(st.session_state.ai_title_checkbox_prev)
+
+if ai_title_checked and not ai_title_was_checked:
+    try:
+        topic_seed = clean_text(
+            st.session_state.topic_input
+            or st.session_state.topic
+            or st.session_state.title
+            or st.session_state.ai_outline_title
+        )
+        content_seed = get_ai_title_source_text()
+        if not content_seed:
+            st.warning("AI Title needs content to read first.")
+        elif not topic_seed and not content_seed:
+            st.warning("Please enter a topic first.")
+        else:
+            generated_title = generate_ai_title(
+                topic=topic_seed or "blog topic",
+                audience=st.session_state.audience,
+                language=st.session_state.language,
+                content=content_seed,
+            )
+            st.session_state.pending_ai_title = generated_title
+            st.session_state.ai_title_checkbox_prev = ai_title_checked
+            st.rerun()
+    except Exception as exc:
+        st.error(f"Could not generate AI title: {exc}")
+
+st.session_state.ai_title_checkbox_prev = ai_title_checked
 
 facts_col, quotes_col = st.columns(2)
 with facts_col:
@@ -1701,12 +1736,11 @@ if st.session_state.blog_mode == "Writer Version":
         export_sections = markdown_to_export_sections(st.session_state.writer_full_draft, title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
 
-        preview_body = "\n\n".join(
+        preview_markdown = "\n\n".join(
             f"## {item['heading']}\n\n{item['content']}"
             for item in export_sections
             if item["content"].strip()
         )
-        preview_markdown = f"# {title}\n\n{preview_body}" if preview_body else f"# {title}"
 
         with st.expander("Preview article", expanded=False):
             preview_height = calc_text_area_height(
@@ -1778,12 +1812,11 @@ else:
         export_sections = markdown_to_export_sections(st.session_state.ai_friendly_draft, export_title)
         export_sections = build_export_sections_with_appendix(export_sections, inputs["keywords"])
 
-        preview_body = "\n\n".join(
+        preview_markdown = "\n\n".join(
             f"## {item['heading']}\n\n{item['content']}"
             for item in export_sections
             if item["content"].strip()
         )
-        preview_markdown = f"# {export_title}\n\n{preview_body}" if preview_body else f"# {export_title}"
 
         with st.expander("Preview article", expanded=False):
             preview_height = calc_text_area_height(
