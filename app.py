@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -337,7 +338,7 @@ def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list
             current_lines.append("")
             continue
 
-        md_heading_match = re.match(r"^(#{1,6})\\s+(.*)$", line)
+        md_heading_match = re.match(r"^(#{1,6})\s+(.*)$", line)
         if md_heading_match:
             heading_text = clean_text(md_heading_match.group(2))
             if heading_text:
@@ -350,7 +351,7 @@ def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list
                 current_heading = heading_text
                 continue
 
-        bold_heading_match = re.match(r"^\\*\\*(.+?)\\*\\*$", line)
+        bold_heading_match = re.match(r"^\*\*(.+?)\*\*$", line)
         if bold_heading_match and len(line) < 120:
             heading_text = clean_text(bold_heading_match.group(1))
             if heading_text:
