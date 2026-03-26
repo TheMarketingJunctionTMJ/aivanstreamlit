@@ -322,46 +322,57 @@ def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list
     current_heading = fallback_title or "Article"
     current_lines: list[str] = []
 
+    def flush_section() -> None:
+        nonlocal current_heading, current_lines, sections
+        content = clean_text("\\n".join(current_lines).strip())
+        heading = clean_text(current_heading) or "Section"
+        if content:
+            sections.append({"heading": heading, "content": content})
+        current_lines = []
+
     for raw_line in text.splitlines():
-        line = raw_line.rstrip()
-        if line.startswith("## "):
-            if current_lines:
-                sections.append(
-                    {
-                        "heading": clean_text(current_heading),
-                        "content": "\n".join(current_lines).strip(),
-                    }
-                )
-            current_heading = clean_text(line[3:])
-            current_lines = []
-        elif line.startswith("# "):
-            if not sections and not current_lines:
-                current_heading = clean_text(line[2:])
-            else:
-                current_lines.append(line)
-        else:
-            current_lines.append(line)
+        line = raw_line.strip()
+
+        if not line:
+            current_lines.append("")
+            continue
+
+        md_heading_match = re.match(r"^(#{1,6})\\s+(.*)$", line)
+        if md_heading_match:
+            heading_text = clean_text(md_heading_match.group(2))
+            if heading_text:
+                if current_lines:
+                    flush_section()
+                else:
+                    if not sections:
+                        current_heading = heading_text
+                        continue
+                current_heading = heading_text
+                continue
+
+        bold_heading_match = re.match(r"^\\*\\*(.+?)\\*\\*$", line)
+        if bold_heading_match and len(line) < 120:
+            heading_text = clean_text(bold_heading_match.group(1))
+            if heading_text:
+                if current_lines:
+                    flush_section()
+                current_heading = heading_text
+                continue
+
+        current_lines.append(raw_line.rstrip())
 
     if current_lines or not sections:
+        flush_section()
+
+    if not sections:
         sections.append(
             {
-                "heading": clean_text(current_heading),
-                "content": "\n".join(current_lines).strip(),
+                "heading": fallback_title or "Article",
+                "content": clean_text(text),
             }
         )
 
-    cleaned_sections = []
-    for section in sections:
-        heading = clean_text(section.get("heading", "")) or "Section"
-        content = clean_text(section.get("content", ""))
-        if content:
-            cleaned_sections.append({"heading": heading, "content": content})
-
-    if not cleaned_sections:
-        cleaned_sections.append({"heading": fallback_title or "Article", "content": text})
-
-    return cleaned_sections
-
+    return sections
 
 def sections_to_markdown(sections: list[dict[str, str]]) -> str:
     return "\n\n".join(
