@@ -415,8 +415,8 @@ Rules:
 def revision_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
-        "You are a precise content editor. Rewrite only the provided section while following the requested instruction. "
-        "Keep the substance accurate and preserve useful facts. "
+        "You are a precise content editor. Rewrite the provided content while following the requested instruction. "
+        "Preserve useful facts and keep the structure clean and consistent. "
         f"Write in {chosen_language}. Do not use em dashes or en dashes."
     )
 
@@ -437,6 +437,10 @@ Rules:
 - Use commas, full stops, or colons instead.
 - Keep the writing natural and human.
 - Do not introduce unsupported statistics, studies, or quotes.
+- Preserve the same markdown section structure.
+- Use only H2 headings for section headings, in this exact format: ## Section Heading
+- Do not use ###, ####, or bold-only headings.
+- Do not wrap headings in **.
 
 {_style_rules(language)}
 
