@@ -325,7 +325,7 @@ def markdown_to_export_sections(markdown_text: str, fallback_title: str) -> list
 
     def flush_section() -> None:
         nonlocal current_heading, current_lines, sections
-        content = clean_text("\\n".join(current_lines).strip())
+        content = clean_text("\n".join(current_lines).strip())
         heading = clean_text(current_heading) or "Section"
         if content:
             sections.append({"heading": heading, "content": content})
