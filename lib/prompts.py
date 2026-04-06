@@ -60,6 +60,7 @@ Writer style requirements:
 - Use contractions and natural phrasing where they improve flow.
 - Address the reader directly with "you" where it feels natural.
 - Mix sentence lengths and sentence structures for a natural rhythm.
+- Vary paragraph lengths naturally.
 - Use subheadings that sound conversational rather than academic.
 - Include rhetorical questions sparingly where they genuinely improve engagement.
 - Include realistic examples and scenarios readers will recognise.
@@ -67,6 +68,10 @@ Writer style requirements:
 - Show genuine enthusiasm for the subject without sounding promotional.
 - Structure the writing like a clear narrative, not a list of generic points.
 - Balance useful information with readability and personality.
+- Preserve a sense of voice, judgement, and editorial texture.
+- Avoid flattening the prose into generic assistant language.
+- Avoid making every paragraph equally polished or equally symmetrical.
+- Keep some natural asymmetry in rhythm and sentence flow where it helps the writing feel human.
 - Avoid corporate jargon, clichés, stiff connectors, and academic phrasing.
 - Avoid robotic transitions such as "It is important to note", "In conclusion", "Furthermore", or "Moreover" unless absolutely necessary.
 - Never start with "In the world of" or similarly confected openings.
@@ -113,7 +118,6 @@ def evaluate_system_prompt(language: Optional[str] = None) -> str:
     )
 
 
-
 def evaluate_user_prompt(evidence_text: str, topic: str, language: Optional[str] = None) -> str:
     clipped = str(evidence_text or "")[:15000]
     return f'''
@@ -143,7 +147,6 @@ Source material:
 '''.strip()
 
 
-
 def verify_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -153,7 +156,6 @@ def verify_system_prompt(language: Optional[str] = None) -> str:
         "Return only valid JSON. "
         f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
-
 
 
 def verify_user_prompt(
@@ -192,7 +194,6 @@ Source material:
 '''.strip()
 
 
-
 def outline_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -201,7 +202,6 @@ def outline_system_prompt(language: Optional[str] = None) -> str:
         "Do not write the full article. Return only the outline in clean JSON. "
         f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
-
 
 
 def outline_user_prompt(inputs: dict) -> str:
@@ -273,7 +273,6 @@ Add hiring section:
 '''.strip()
 
 
-
 def insights_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -281,7 +280,6 @@ def insights_system_prompt(language: Optional[str] = None) -> str:
         "Extract concrete, useful, non-redundant insights. Return only valid JSON. "
         f"Use {chosen_language} and do not use em dashes or en dashes."
     )
-
 
 
 def insights_user_prompt(raw_text: str, topic: str, language: Optional[str] = None) -> str:
@@ -309,18 +307,18 @@ Source material:
 '''.strip()
 
 
-
 def section_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
         "You are a senior B2B blog writer with the voice of an experienced recruitment consultant. "
         "Write polished, engaging, non-generic article sections that sound human, insightful, and commercially credible. "
         "Avoid fluffy openings, repetitive transitions, academic phrasing, and empty filler. "
+        "Preserve nuance, voice, rhythm, and editorial texture. "
+        "Do not flatten the prose into generic assistant language. "
         "Use the provided facts and quotes faithfully. "
         f"Write in {chosen_language}. Do not use em dashes or en dashes. "
         "Use commas, full stops, or colons instead."
     )
-
 
 
 def section_user_prompt(inputs: dict, section: dict, title: str, outline: list) -> str:
@@ -381,10 +379,13 @@ Rules:
 - Use contractions where they help the flow.
 - Address the reader directly with "you" where natural.
 - Mix sentence lengths and structures for natural rhythm.
+- Vary paragraph lengths naturally.
 - Include realistic examples or scenarios where relevant.
 - Be honest about challenges without sounding discouraging.
 - Show genuine enthusiasm without sounding salesy.
 - Let the section feel like part of a developing story, not a list of tips.
+- Preserve judgement, personality, and editorial texture.
+- Do not make every paragraph feel equally polished or overly symmetrical.
 - Include rhetorical questions sparingly where they genuinely improve engagement.
 - Do not patronise the reader.
 - Do not use emoji.
@@ -411,23 +412,37 @@ Rules:
 '''.strip()
 
 
-
 def revision_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
-        "You are a precise content editor. Rewrite the provided content while following the requested instruction. "
-        "Preserve useful facts and keep the structure clean and consistent. "
-        f"Write in {chosen_language}. Do not use em dashes or en dashes."
+        "You are a senior B2B blog writer and editor with the voice of an experienced recruitment consultant. "
+        "Revise the provided blog content while preserving the original human voice, editorial texture, narrative flow, and commercial credibility. "
+        "Do not flatten the prose into a generic assistant style. "
+        "Do not over-normalise sentence rhythm, paragraph rhythm, or transitions. "
+        "Keep distinctive phrasing where it works. "
+        "Make the requested change precisely, but preserve the richness, specificity, and human feel of the original draft. "
+        f"Write in {chosen_language}. Do not use em dashes or en dashes. "
+        "Use commas, full stops, or colons instead."
     )
 
 
-
-def revision_user_prompt(section_heading: str, section_content: str, instruction: str, language: Optional[str] = None) -> str:
+def revision_user_prompt(
+    section_heading: str,
+    section_content: str,
+    instruction: str,
+    language: Optional[str] = None,
+) -> str:
     return f'''
 Section heading: {section_heading}
 Revision instruction: {instruction}
 
-Rewrite the content below.
+Revise the content below.
+
+IMPORTANT:
+- This is not a rewrite from scratch.
+- Preserve the original human voice, rhythm, sentence variation, and personality.
+- Do not make the writing more generic, more symmetrical, or more AI-like.
+- Keep strong original phrasing unless the instruction requires changing it.
 
 Rules:
 - Keep the meaning accurate.
@@ -435,19 +450,122 @@ Rules:
 - Do not use em dashes (—).
 - Do not use en dashes (–).
 - Use commas, full stops, or colons instead.
-- Keep the writing natural and human.
+- Keep the writing natural, polished, and human.
+- Do not over-smooth the prose.
 - Do not introduce unsupported statistics, studies, or quotes.
 - Preserve the same markdown section structure.
 - Use only H2 headings for section headings, in this exact format: ## Section Heading
 - Do not use ###, ####, or bold-only headings.
 - Do not wrap headings in **.
+- Preserve nuance, texture, and editorial feel where possible.
 
-{_style_rules(language)}
+{_writer_style_rules(language)}
 
 Section content:
 {section_content}
 '''.strip()
 
+
+def full_blog_revision_user_prompt(
+    inputs: dict,
+    blog_markdown: str,
+    instruction: str,
+    title: Optional[str] = None,
+    outline: Optional[list] = None,
+) -> str:
+    verified = inputs.get("verified_evidence") or {}
+    verified_points = verified.get("verified_points", [])
+    verified_quotes = verified.get("verified_quotes", [])
+    unsupported_points = verified.get("unsupported_points", [])
+
+    outline = outline or []
+    outline_text = "\n".join(
+        f"- {item.get('heading', '')}: {item.get('objective', '')} ({item.get('suggestedWords', 180)} words)"
+        for item in outline
+    ) or "- None provided"
+
+    return f'''
+Revise this full writer-style blog article according to the instruction below.
+
+IMPORTANT:
+- This is not a rewrite from scratch.
+- This is a targeted revision.
+- Preserve the original human voice, tone, rhythm, and personality.
+- Do not make the writing more generic, more symmetrical, or more AI-like.
+- Keep the article feeling like the same writer revised it, not a different system.
+
+Blog title: {title or inputs.get('title') or 'None provided'}
+Topic: {inputs.get('topic') or 'None provided'}
+Audience: {inputs.get('audience') or 'None provided'}
+Tone: {inputs.get('tone') or 'None provided'}
+Target total words: {inputs.get('target_words') or 'None provided'}
+
+Full outline:
+{outline_text}
+
+Revision instruction:
+{instruction}
+
+Verified points:
+{_bullet_lines(verified_points)}
+Verified quotes:
+{_bullet_lines(verified_quotes)}
+Unsupported or weak points to avoid treating as established fact:
+{_bullet_lines(unsupported_points)}
+
+SEO keywords:
+{_bullet_lines(inputs.get('keywords', []))}
+Facts:
+{_bullet_lines(inputs.get('facts', []))}
+Quotes:
+{_bullet_lines(inputs.get('quotes', []))}
+Research notes:
+{inputs.get('research_notes') or 'None provided'}
+Document insights:
+{_bullet_lines(inputs.get('document_insights', []))}
+Add hiring section:
+{'Yes' if inputs.get('add_hiring_section') else 'No'}
+
+Revision behaviour rules:
+- Only change what the instruction requires.
+- Keep strong original phrasing unless it must change.
+- Preserve sentence rhythm and paragraph variation.
+- Do not make every paragraph equally polished.
+- Do not standardise tone across the whole article.
+- Do not simplify everything into clean, generic phrasing.
+- Keep natural imperfections if they contribute to human feel.
+- Maintain variation in sentence length and structure.
+- Preserve storytelling elements, specific observations, and editorial judgement.
+- Avoid turning the article into a template-style blog.
+- Preserve structure and flow unless the instruction explicitly asks for structural change.
+- Preserve the level of specificity, nuance, and professionalism already present in the draft.
+- If shortening, compress intelligently without flattening the voice.
+- If expanding, expand in the same voice and rhythm as the original.
+- If clarifying, clarify without turning the article into bland explanatory copy.
+
+Factual rules:
+- Do not fabricate statistics or quotes.
+- Use verified evidence where relevant.
+- Use verified quotes verbatim where relevant.
+- Do not present unsupported points as established fact.
+- Do not turn weak or unsupported points into confident factual claims.
+- If evidence is limited, stay broad and responsible rather than making highly specific unsupported claims.
+
+Formatting rules:
+- Preserve markdown structure.
+- Keep the existing title and section structure unless the instruction explicitly asks for structural change.
+- Keep H1 for title and H2 for sections if already present.
+- Do not add unnecessary headings.
+- Do not wrap headings in bold markers.
+
+{_writer_style_rules(inputs.get('language'))}
+
+Final goal:
+The revised article should feel like the same human writer wrote it, just improved where needed.
+
+Article to revise:
+{blog_markdown}
+'''.strip()
 
 
 def ai_friendly_outline_system_prompt(language: Optional[str] = None) -> str:
@@ -459,7 +577,6 @@ def ai_friendly_outline_system_prompt(language: Optional[str] = None) -> str:
         "Return only valid JSON. "
         f"Use {chosen_language} and do not use em dashes or en dashes anywhere."
     )
-
 
 
 def ai_friendly_outline_user_prompt(inputs: dict) -> str:
@@ -533,7 +650,6 @@ Add hiring section:
 '''.strip()
 
 
-
 def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
     chosen_language = _language_label(language)
     return (
@@ -542,7 +658,6 @@ def ai_friendly_blog_system_prompt(language: Optional[str] = None) -> str:
         "The output must be publication-ready markdown. "
         f"Use {chosen_language}. Do not use em dashes or en dashes anywhere."
     )
-
 
 
 def ai_friendly_blog_user_prompt(
