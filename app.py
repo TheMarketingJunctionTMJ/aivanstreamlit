@@ -175,7 +175,7 @@ def current_inputs() -> dict[str, Any]:
         "keywords": lines_to_list(st.session_state.keywords_text),
         "facts": lines_to_list(st.session_state.facts_text),
         "quotes": lines_to_list(st.session_state.quotes_text),
-        "research_notes": st.session_state.research_notes.strip(),
+        "research_notes": clip_text(st.session_state.research_notes, MAX_RESEARCH_NOTES_CHARS),
         "tone": st.session_state.tone,
         "language": st.session_state.language,
         "target_words": int(st.session_state.target_words),
@@ -195,6 +195,9 @@ def parse_json_response(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
+MAX_RESEARCH_NOTES_CHARS = 12000
+
+
 def clean_text(text: str) -> str:
     text = str(text or "")
     text = text.replace("—", ", ")
@@ -202,6 +205,12 @@ def clean_text(text: str) -> str:
     while "  " in text:
         text = text.replace("  ", " ")
     return text.strip()
+
+def clip_text(text: str, max_chars: int) -> str:
+    cleaned = clean_text(text)
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[:max_chars].rstrip()
 
 
 def to_bullet_lines(items: list[str]) -> str:
@@ -485,7 +494,7 @@ def build_evidence_bundle(inputs: dict[str, Any]) -> str:
         parts.append("User quotes:\n" + "\n".join(f"- {clean_text(x)}" for x in inputs["quotes"] if clean_text(x)))
 
     if inputs["research_notes"]:
-        parts.append("Research notes:\n" + clean_text(inputs["research_notes"]))
+        parts.append("Research notes:\n" + clip_text(inputs["research_notes"], MAX_RESEARCH_NOTES_CHARS))
 
     if st.session_state.document_text.strip():
         parts.append("Uploaded document text:\n" + st.session_state.document_text[:12000])
